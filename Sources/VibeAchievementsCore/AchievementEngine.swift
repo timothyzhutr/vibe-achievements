@@ -5,22 +5,33 @@ public struct AchievementUnlock: Codable, Equatable, Sendable {
     public var name: String
     public var projectKey: String?
     public var threadID: String?
+    /// The value that scopes this unlock's uniqueness, chosen from the
+    /// contract's cooldown: a thread id for `once_per_thread`, a project key for
+    /// `once_per_project*`, or "" for globally-unique achievements.
+    public var scopeKey: String
     public var unlockedAt: Date
     public var triggerSummary: String
 
-    /// Stable identity for an unlock, scoped the way its cooldown implies.
-    /// Project-scoped achievements unlock once per project; globally-scoped
-    /// achievements (no project) unlock once overall. Must match the key the
-    /// store derives from its columns.
+    public init(achievementID: String, name: String, projectKey: String?, threadID: String?, scopeKey: String = "", unlockedAt: Date, triggerSummary: String) {
+        self.achievementID = achievementID
+        self.name = name
+        self.projectKey = projectKey
+        self.threadID = threadID
+        self.scopeKey = scopeKey
+        self.unlockedAt = unlockedAt
+        self.triggerSummary = triggerSummary
+    }
+
+    /// Stable identity for an unlock. Must match the key the store derives from
+    /// its columns.
     public var unlockKey: String {
-        makeUnlockKey(achievementID: achievementID, projectKey: projectKey)
+        makeUnlockKey(achievementID: achievementID, scopeKey: scopeKey)
     }
 }
 
 /// Single source of truth for unlock identity, shared by the engine and store.
-public func makeUnlockKey(achievementID: String, projectKey: String?) -> String {
-    guard let projectKey, !projectKey.isEmpty else { return achievementID }
-    return "\(achievementID)@\(projectKey)"
+public func makeUnlockKey(achievementID: String, scopeKey: String) -> String {
+    scopeKey.isEmpty ? achievementID : "\(achievementID)@\(scopeKey)"
 }
 
 public enum AchievementEngine {
@@ -46,7 +57,28 @@ public enum AchievementEngine {
 
     private static func unlock(_ id: String, if condition: Bool, activeContracts: [AchievementContract], parsed: ParsedTranscript, unlocks: inout [AchievementUnlock], summary: String) {
         guard condition, let contract = activeContracts.first(where: { $0.id == id }) else { return }
-        unlocks.append(AchievementUnlock(achievementID: contract.id, name: contract.name, projectKey: parsed.thread.projectKey, threadID: parsed.thread.id, unlockedAt: Date(), triggerSummary: summary))
+        unlocks.append(AchievementUnlock(
+            achievementID: contract.id,
+            name: contract.name,
+            projectKey: parsed.thread.projectKey,
+            threadID: parsed.thread.id,
+            scopeKey: scopeKey(forCooldown: contract.cooldown, parsed: parsed),
+            unlockedAt: Date(),
+            triggerSummary: summary
+        ))
+    }
+
+    /// Maps a contract's cooldown to the value that makes an unlock unique.
+    /// `once_per_thread` -> thread id, `once_per_project*` -> project key,
+    /// everything else (once_per_user / all_time) -> global.
+    ///
+    /// Note: time-windowed cooldowns like `once_per_project_per_7_days` are
+    /// treated as once-per-project; the rolling window is not yet enforced.
+    private static func scopeKey(forCooldown cooldown: String, parsed: ParsedTranscript) -> String {
+        let lowered = cooldown.lowercased()
+        if lowered.contains("thread") { return parsed.thread.id }
+        if lowered.contains("project") { return parsed.thread.projectKey }
+        return ""
     }
 
     private static func hasSequence(_ sequence: [EventType], _ events: [ExtractedEvent]) -> Bool {

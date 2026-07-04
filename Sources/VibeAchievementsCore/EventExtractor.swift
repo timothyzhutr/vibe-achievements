@@ -28,12 +28,19 @@ public enum EventExtractor {
             events.append(threadEvent(.oneMorePromptSeen, parsed: parsed))
         }
 
+        var userTurnCount = 0
         for message in parsed.messages {
             let lowered = message.text.lowercased()
+            let isUserTurn = message.role == .user
+            if isUserTurn { userTurnCount += 1 }
             if message.charCount >= 2_000 {
                 events.append(messageEvent(.longMessageSeen, parsed: parsed, message: message, confidence: "high"))
             }
-            if containsAny(lowered, ["actually", "wait", "never mind", "scratch that", "instead"]) && message.role == .user {
+            // A course-correction requires an existing direction to change, so
+            // only count corrections after the first user turn (the contract's
+            // `same_thread_after_first_user_turn` window).
+            if isUserTurn, userTurnCount > 1,
+               containsAny(lowered, ["actually", "wait", "never mind", "scratch that", "instead"]) {
                 events.append(messageEvent(.correctionLanguageSeen, parsed: parsed, message: message, confidence: "high"))
             }
             if containsAny(message.text, ["Traceback", "Exception", "TypeError", "ReferenceError", "SyntaxError", "exit code"]) {

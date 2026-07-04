@@ -15,4 +15,20 @@ final class CodexParserTests: XCTestCase {
         XCTAssertEqual(parsed.thread.rawTokenCount, 150)
         XCTAssertTrue(parsed.messages.map(\.text).joined(separator: "\n").contains("rm -rf"))
     }
+
+    func testCumulativeTokenTotalsAreNotSummed() throws {
+        // total_token_usage is cumulative per session; two events reporting 100
+        // then 250 must yield 250, not 350.
+        let lines = [
+            #"{"type":"session_meta","timestamp":"2026-07-04T02:00:00.000Z","payload":{"id":"s","cwd":"/tmp/p"}}"#,
+            #"{"type":"event_msg","timestamp":"2026-07-04T02:00:01.000Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":80,"output_tokens":20}}}}"#,
+            #"{"type":"event_msg","timestamp":"2026-07-04T02:00:02.000Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":200,"output_tokens":50}}}}"#
+        ].joined(separator: "\n")
+        let url = URL(fileURLWithPath: NSTemporaryDirectory() + UUID().uuidString + ".jsonl")
+        try lines.write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let parsed = try CodexParser.parse(fileURL: url)
+        XCTAssertEqual(parsed.thread.rawTokenCount, 250)
+    }
 }

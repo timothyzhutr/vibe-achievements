@@ -32,7 +32,10 @@ public enum CodexParser {
             }
 
             if type == "event_msg", payload["type"] as? String == "token_count" {
-                rawTokens += tokenCount(from: payload["info"])
+                // `total_token_usage` is cumulative for the session and can be
+                // reported by several events; summing them overcounts. Keep the
+                // largest total seen instead.
+                rawTokens = max(rawTokens, tokenCount(from: payload["info"]))
                 continue
             }
 
