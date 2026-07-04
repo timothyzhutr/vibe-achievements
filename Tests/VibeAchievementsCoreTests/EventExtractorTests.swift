@@ -36,6 +36,14 @@ final class EventExtractorTests: XCTestCase {
         }
     }
 
+    func testSuccessTermsInsideLargerWordsAreIgnored() {
+        for text in ["the bug remains unfixed", "sales are surpassing forecasts", "the id is prefixed with codex"] {
+            let parsed = makeUserTranscript(["build the app", text])
+            let events = EventExtractor.extract(from: parsed)
+            XCTAssertFalse(events.contains { $0.type == .successSeen }, "\(text.debugDescription) should not count as success")
+        }
+    }
+
     func testAffirmativeSuccessIsStillDetected() {
         for text in ["it works now", "the failing test is fixed", "tests are passing"] {
             let parsed = makeUserTranscript(["build the app", text])

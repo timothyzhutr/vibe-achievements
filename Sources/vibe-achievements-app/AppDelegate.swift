@@ -43,6 +43,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             shelfWindow = NSWindow(contentViewController: NSHostingController(rootView: AchievementShelfView(state: appState)))
             shelfWindow?.title = "Vibe Achievements"
             shelfWindow?.setContentSize(NSSize(width: 560, height: 420))
+            // We keep a strong reference and reuse the window; the default
+            // release-when-closed would deallocate it under us on close.
+            shelfWindow?.isReleasedWhenClosed = false
         }
         NSApp.activate(ignoringOtherApps: true)
         shelfWindow?.makeKeyAndOrderFront(nil)
@@ -57,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settingsWindow = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(state: appState)))
             settingsWindow?.title = "Settings"
             settingsWindow?.setContentSize(NSSize(width: 460, height: 220))
+            settingsWindow?.isReleasedWhenClosed = false
         }
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow?.makeKeyAndOrderFront(nil)

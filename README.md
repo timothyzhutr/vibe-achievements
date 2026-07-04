@@ -72,7 +72,7 @@ Source stores are read **read-only**; the app never modifies your history.
 
 ```bash
 swift build          # build everything
-swift test           # run the test suite (31 tests)
+swift test           # run the test suite
 ```
 
 ## Running

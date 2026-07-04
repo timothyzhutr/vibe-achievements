@@ -74,8 +74,10 @@ public enum Indexer {
         if path.path.contains("/.codex/") || path.lastPathComponent.hasPrefix("rollout-") {
             return try CodexParser.parse(fileURL: path)
         }
-        let data = try Data(contentsOf: path)
-        let preview = String(decoding: data.prefix(512), as: UTF8.self)
+        // Sniff only the first bytes rather than reading the whole file twice.
+        let handle = try FileHandle(forReadingFrom: path)
+        defer { try? handle.close() }
+        let preview = String(decoding: try handle.read(upToCount: 512) ?? Data(), as: UTF8.self)
         if preview.contains("\"session_meta\"") || preview.contains("\"response_item\"") {
             return try CodexParser.parse(fileURL: path)
         }

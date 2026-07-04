@@ -7,6 +7,7 @@ public enum CodexParser {
         let data = try Data(contentsOf: fileURL)
         let text = String(decoding: data, as: UTF8.self)
         var messages: [NormalizedMessage] = []
+        var messageLineIndexes: [Int] = []
         var threadID = fileURL.deletingPathExtension().lastPathComponent
         var cwd: String?
         var createdAt: Date?
@@ -56,6 +57,14 @@ public enum CodexParser {
                 text: content,
                 rawType: "response_item.message"
             ))
+            messageLineIndexes.append(index)
+        }
+
+        // Re-key messages with the final thread id, in case session_meta
+        // appeared after the first response items.
+        for index in messages.indices {
+            messages[index].id = "\(threadID)-\(messageLineIndexes[index])"
+            messages[index].threadID = threadID
         }
 
         let estimatedTokens = messages.reduce(0) { $0 + $1.estimatedTokens }

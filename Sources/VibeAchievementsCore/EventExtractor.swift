@@ -68,16 +68,24 @@ public enum EventExtractor {
 
     /// True when the text claims success without a nearby negation. Guards
     /// against "still not fixed" / "tests are not passing" substring-matching a
-    /// success term. `text` is expected lowercased.
+    /// success term, and against terms embedded in larger words ("unfixed",
+    /// "surpassing"). `text` is expected lowercased.
     private static func mentionsAffirmativeSuccess(_ text: String) -> Bool {
         for term in successTerms {
             var searchStart = text.startIndex
             while let range = text.range(of: term, range: searchStart..<text.endIndex) {
+                searchStart = range.upperBound
+
+                // Reject matches inside a larger word: "unfixed", "prefixed".
+                if range.lowerBound > text.startIndex,
+                   text[text.index(before: range.lowerBound)].isLetter {
+                    continue
+                }
+
                 let windowStart = text.index(range.lowerBound, offsetBy: -18, limitedBy: text.startIndex) ?? text.startIndex
                 let preceding = " " + text[windowStart..<range.lowerBound] + " "
                 let negated = [" not ", " no ", " never ", " cannot ", " without ", "n't "].contains { preceding.contains($0) }
                 if !negated { return true }
-                searchStart = range.upperBound
             }
         }
         return false

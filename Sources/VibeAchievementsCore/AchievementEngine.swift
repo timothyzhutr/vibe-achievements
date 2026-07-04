@@ -82,8 +82,14 @@ public enum AchievementEngine {
     }
 
     private static func hasSequence(_ sequence: [EventType], _ events: [ExtractedEvent]) -> Bool {
+        // Swift's sort is not stable, so tie-break equal (or missing) timestamps
+        // by extraction order — events are extracted in transcript order.
+        let ordered = events.enumerated()
+            .sorted { ($0.element.timestamp ?? .distantPast, $0.offset) < ($1.element.timestamp ?? .distantPast, $1.offset) }
+            .map(\.element)
+
         var index = 0
-        for event in events.sorted(by: { ($0.timestamp ?? .distantPast) < ($1.timestamp ?? .distantPast) }) {
+        for event in ordered {
             if event.type == sequence[index] {
                 index += 1
                 if index == sequence.count { return true }

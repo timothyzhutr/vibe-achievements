@@ -190,7 +190,9 @@ public final class SQLiteStore {
             if let value = value as? String {
                 sqlite3_bind_text(statement, position, value, -1, SQLITE_TRANSIENT)
             } else if let value = value as? Int {
-                sqlite3_bind_int(statement, position, Int32(value))
+                // 64-bit bind: token counts can exceed Int32.max on large
+                // histories, and Int32(value) would trap.
+                sqlite3_bind_int64(statement, position, sqlite3_int64(value))
             } else {
                 sqlite3_bind_null(statement, position)
             }
