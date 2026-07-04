@@ -4,6 +4,17 @@ import SQLite3
 public final class SQLiteStore {
     private var db: OpaquePointer?
 
+    // Fractional seconds so unlocks recorded close together still sort by real
+    // time; `rowid` in allUnlocks breaks any remaining ties deterministically.
+    // Instance-scoped because the store is used serially by a single owner.
+    private let isoFractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private let isoPlain = ISO8601DateFormatter()
+
     public init(path: String) throws {
         guard sqlite3_open(path, &db) == SQLITE_OK else {
             // sqlite3_open may allocate a handle even on failure; release it.
@@ -53,7 +64,7 @@ public final class SQLiteStore {
         let sql = """
         SELECT achievement_id, name, project_key, thread_id, unlocked_at, trigger_summary
         FROM achievement_unlocks
-        ORDER BY unlocked_at DESC;
+        ORDER BY unlocked_at DESC, rowid DESC;
         """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { throw StoreError.prepareFailed }
@@ -185,11 +196,13 @@ public final class SQLiteStore {
 
     private func iso(_ date: Date?) -> String {
         guard let date else { return "" }
-        return ISO8601DateFormatter().string(from: date)
+        return isoFractional.string(from: date)
     }
 
     private func parseISO(_ value: String) -> Date? {
-        ISO8601DateFormatter().date(from: value)
+        // Tolerate both formats so timestamps written before this change (plain,
+        // second-resolution) still read back correctly.
+        isoFractional.date(from: value) ?? isoPlain.date(from: value)
     }
 
     private func columnString(_ statement: OpaquePointer?, _ index: Int32) -> String {

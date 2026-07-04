@@ -1,22 +1,56 @@
 import Foundation
 
+/// A transcript that could not be parsed during indexing. Surfaced instead of
+/// being silently dropped, so a source that fails to parse is diagnosable.
+public struct IndexWarning: Sendable, Equatable {
+    public var path: String
+    public var message: String
+
+    public init(path: String, message: String) {
+        self.path = path
+        self.message = message
+    }
+}
+
+/// Outcome of an indexing pass: the achievements unlocked plus any files that
+/// were skipped because they could not be parsed.
+public struct IndexResult: Sendable {
+    public var unlocks: [AchievementUnlock]
+    public var warnings: [IndexWarning]
+
+    public init(unlocks: [AchievementUnlock], warnings: [IndexWarning]) {
+        self.unlocks = unlocks
+        self.warnings = warnings
+    }
+}
+
 public enum Indexer {
-    public static func index(paths: [URL], contractsURL: URL, storePath: String) throws -> [AchievementUnlock] {
+    @discardableResult
+    public static func index(paths: [URL], contractsURL: URL, storePath: String) throws -> IndexResult {
         let contracts = try AchievementContractLoader.load(jsonlURL: contractsURL)
         return try index(paths: paths, contracts: contracts, storePath: storePath)
     }
 
-    public static func index(paths: [URL], contracts: [AchievementContract], storePath: String) throws -> [AchievementUnlock] {
+    @discardableResult
+    public static func index(paths: [URL], contracts: [AchievementContract], storePath: String) throws -> IndexResult {
         let store = try SQLiteStore(path: storePath)
         return try index(paths: paths, contracts: contracts, store: store)
     }
 
-    public static func index(paths: [URL], contracts: [AchievementContract], store: SQLiteStore) throws -> [AchievementUnlock] {
+    @discardableResult
+    public static func index(paths: [URL], contracts: [AchievementContract], store: SQLiteStore) throws -> IndexResult {
         var unlockedKeys = try store.existingUnlockKeys()
         var allUnlocks: [AchievementUnlock] = []
+        var warnings: [IndexWarning] = []
 
         for path in paths where path.pathExtension == "jsonl" {
-            guard let parsed = try? parseTranscript(at: path) else {
+            let parsed: ParsedTranscript
+            do {
+                parsed = try parseTranscript(at: path)
+            } catch {
+                // One bad file should not abort the scan, but it must not vanish
+                // silently either.
+                warnings.append(IndexWarning(path: path.path, message: String(describing: error)))
                 continue
             }
 
@@ -30,7 +64,7 @@ public enum Indexer {
             allUnlocks.append(contentsOf: unlocks)
         }
 
-        return allUnlocks
+        return IndexResult(unlocks: allUnlocks, warnings: warnings)
     }
 
     private static func parseTranscript(at path: URL) throws -> ParsedTranscript {

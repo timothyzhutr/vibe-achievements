@@ -51,6 +51,34 @@ final class SQLiteStoreTests: XCTestCase {
         XCTAssertEqual(unlocks.first?.threadID, "thread-b")
     }
 
+    func testEqualTimestampsOrderDeterministicallyByInsertion() throws {
+        let path = NSTemporaryDirectory() + UUID().uuidString + ".sqlite"
+        let store = try SQLiteStore(path: path)
+        let sameInstant = Date(timeIntervalSince1970: 1_000)
+
+        try store.insert(unlock: AchievementUnlock(
+            achievementID: "first_inserted",
+            name: "First",
+            projectKey: "/tmp/a",
+            threadID: "thread-a",
+            unlockedAt: sameInstant,
+            triggerSummary: "First."
+        ))
+        try store.insert(unlock: AchievementUnlock(
+            achievementID: "second_inserted",
+            name: "Second",
+            projectKey: "/tmp/b",
+            threadID: "thread-b",
+            unlockedAt: sameInstant,
+            triggerSummary: "Second."
+        ))
+
+        // Identical timestamps must not produce arbitrary ordering: the most
+        // recently inserted row wins the tiebreak, stably across queries.
+        XCTAssertEqual(try store.allUnlocks().map(\.achievementID), ["second_inserted", "first_inserted"])
+        XCTAssertEqual(try store.allUnlocks().map(\.achievementID), ["second_inserted", "first_inserted"])
+    }
+
     func testFileFingerprintsPersistAndUpdate() throws {
         let path = NSTemporaryDirectory() + UUID().uuidString + ".sqlite"
         let store = try SQLiteStore(path: path)

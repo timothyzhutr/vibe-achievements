@@ -12,9 +12,12 @@ let storePath = String(args[args.index(after: args.startIndex)])
 let transcriptPaths = args.dropFirst(2).map { URL(fileURLWithPath: String($0)) }
 
 do {
-    let unlocks = try Indexer.index(paths: transcriptPaths, contractsURL: contractsURL, storePath: storePath)
-    for unlock in unlocks {
+    let result = try Indexer.index(paths: transcriptPaths, contractsURL: contractsURL, storePath: storePath)
+    for unlock in result.unlocks {
         print("Unlocked: \(unlock.name) - \(unlock.triggerSummary)")
+    }
+    for warning in result.warnings {
+        fputs("Warning: skipped \(warning.path): \(warning.message)\n", stderr)
     }
 } catch {
     fputs("Error: \(error)\n", stderr)

@@ -111,9 +111,12 @@ extension AppState {
             }
 
             var newUnlocks: [AchievementUnlock] = []
+            var warnings: [IndexWarning] = []
             if !changed.isEmpty {
                 let contracts = try AchievementContractLoader.loadBundledV1()
-                newUnlocks = try Indexer.index(paths: changed.map(\.url), contracts: contracts, store: store)
+                let result = try Indexer.index(paths: changed.map(\.url), contracts: contracts, store: store)
+                newUnlocks = result.unlocks
+                warnings = result.warnings
                 // Record fingerprints even for files that produced no unlocks so
                 // they are not re-parsed until they actually change again.
                 for entry in changed {
@@ -128,7 +131,7 @@ extension AppState {
                 recentUnlocks: recent,
                 newUnlocks: newUnlocks,
                 wasBackfill: wasBackfill,
-                error: nil
+                error: warningSummary(for: warnings)
             )
         } catch {
             return ScanResult(
@@ -148,6 +151,15 @@ extension AppState {
         let modified = values?.contentModificationDate?.timeIntervalSince1970 ?? 0
         let size = values?.fileSize ?? 0
         return "\(modified)-\(size)"
+    }
+
+    /// A concise, user-facing note about skipped files, surfaced through the
+    /// same channel as hard errors. `nil` when everything parsed cleanly.
+    nonisolated private static func warningSummary(for warnings: [IndexWarning]) -> String? {
+        guard !warnings.isEmpty else { return nil }
+        let names = warnings.prefix(3).map { URL(fileURLWithPath: $0.path).lastPathComponent }
+        let suffix = warnings.count > 3 ? ", …" : ""
+        return "Skipped \(warnings.count) unreadable file\(warnings.count == 1 ? "" : "s"): \(names.joined(separator: ", "))\(suffix)"
     }
 
     nonisolated private static func scanSummary(changedFileCount: Int, newUnlockCount: Int) -> String {
