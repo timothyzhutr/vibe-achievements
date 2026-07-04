@@ -1,3 +1,19 @@
+# macOS
 .DS_Store
+
+# Claude Code local settings
 .claude/
 
+# Swift Package Manager build output
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode (in case an app/project target is added later)
+xcuserdata/
+DerivedData/
+
+# Local runtime data / packaging output
+*.sqlite
+dist/
+*.dmg
