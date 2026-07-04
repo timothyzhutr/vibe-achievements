@@ -11,12 +11,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let image = LogoAsset.nsImage(size: NSSize(width: 18, height: 18)) {
-            statusItem?.button?.image = image
-            statusItem?.button?.imagePosition = .imageOnly
-        } else {
-            statusItem?.button?.title = "Vibe"
-        }
+        statusItem?.button?.image = LogoAsset.statusBarImage()
+        statusItem?.button?.imagePosition = .imageOnly
+        statusItem?.button?.toolTip = "Vibe Achievements"
 
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Open Achievements", action: #selector(openAchievements), keyEquivalent: "a"))
