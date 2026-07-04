@@ -1,19 +1,25 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @StateObject private var state = AppState()
+    @ObservedObject var state: AppState
 
     var body: some View {
         Form {
             Text("Sources")
             Text(state.sourceSummary)
                 .foregroundStyle(.secondary)
-            Button("Refresh Sources") {
-                state.refresh()
+            Text(state.lastScanSummary)
+                .foregroundStyle(.secondary)
+            if let lastError = state.lastError {
+                Text(lastError)
+                    .foregroundStyle(.red)
+            }
+            Button("Scan Now") {
+                state.scanNow(sendNotifications: true)
             }
         }
         .padding()
         .frame(width: 460)
-        .onAppear { state.refresh() }
+        .onAppear { state.refresh(sendNotifications: false) }
     }
 }

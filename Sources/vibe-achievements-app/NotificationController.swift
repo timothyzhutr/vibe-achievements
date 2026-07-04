@@ -2,8 +2,10 @@ import Foundation
 import UserNotifications
 
 enum NotificationController {
-    static func requestAuthorization() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    static func requestAuthorization(completion: (@Sendable () -> Void)? = nil) {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in
+            completion?()
+        }
     }
 
     static func notify(unlockName: String, summary: String) {

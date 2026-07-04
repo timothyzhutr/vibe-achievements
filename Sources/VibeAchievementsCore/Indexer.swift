@@ -3,12 +3,18 @@ import Foundation
 public enum Indexer {
     public static func index(paths: [URL], contractsURL: URL, storePath: String) throws -> [AchievementUnlock] {
         let contracts = try AchievementContractLoader.load(jsonlURL: contractsURL)
+        return try index(paths: paths, contracts: contracts, storePath: storePath)
+    }
+
+    public static func index(paths: [URL], contracts: [AchievementContract], storePath: String) throws -> [AchievementUnlock] {
         let store = try SQLiteStore(path: storePath)
         var unlockedKeys = try store.existingUnlockKeys()
         var allUnlocks: [AchievementUnlock] = []
 
         for path in paths where path.pathExtension == "jsonl" {
-            let parsed = try parseTranscript(at: path)
+            guard let parsed = try? parseTranscript(at: path) else {
+                continue
+            }
 
             try store.upsert(thread: parsed.thread)
             let events = EventExtractor.extract(from: parsed)

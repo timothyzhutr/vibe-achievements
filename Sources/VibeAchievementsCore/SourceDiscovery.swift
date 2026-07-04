@@ -25,7 +25,39 @@ public enum SourceDiscovery {
         )
     }
 
+    public static func transcriptPaths(in locations: SourceLocations) -> [URL] {
+        let roots = [
+            locations.claudeProjects,
+            locations.codexSessions,
+            locations.codexArchivedSessions
+        ].compactMap { $0 }
+
+        return roots
+            .flatMap(jsonlFiles(in:))
+            .sorted { $0.path < $1.path }
+    }
+
     private static func exists(_ url: URL) -> Bool {
         FileManager.default.fileExists(atPath: url.path)
+    }
+
+    private static func jsonlFiles(in root: URL) -> [URL] {
+        guard let enumerator = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        return enumerator.compactMap { item in
+            guard let url = item as? URL,
+                  url.pathExtension == "jsonl",
+                  ((try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) ?? false)
+            else {
+                return nil
+            }
+            return url
+        }
     }
 }

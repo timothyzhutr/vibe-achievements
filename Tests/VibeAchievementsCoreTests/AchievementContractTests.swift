@@ -11,4 +11,12 @@ final class AchievementContractTests: XCTestCase {
         XCTAssertEqual(contracts.last?.name, "rm -rf")
         XCTAssertTrue(contracts.allSatisfy(\.active))
     }
+
+    func testLoadsBundledV1Contracts() throws {
+        let contracts = try AchievementContractLoader.loadBundledV1()
+
+        XCTAssertEqual(contracts.count, 50)
+        XCTAssertTrue(contracts.contains { $0.id == "achievement_unlocked_unlocking_achievement" })
+        XCTAssertTrue(contracts.contains { $0.id == "rm_rf" })
+    }
 }

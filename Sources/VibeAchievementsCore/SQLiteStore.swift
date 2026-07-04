@@ -40,6 +40,36 @@ public final class SQLiteStore {
         try scalarInt("SELECT COUNT(*) FROM achievement_unlocks;")
     }
 
+    public func allUnlocks() throws -> [AchievementUnlock] {
+        let sql = """
+        SELECT achievement_id, name, project_key, thread_id, unlocked_at, trigger_summary
+        FROM achievement_unlocks
+        ORDER BY unlocked_at DESC;
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { throw StoreError.prepareFailed }
+        defer { sqlite3_finalize(statement) }
+
+        var unlocks: [AchievementUnlock] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let achievementID = columnString(statement, 0)
+            let name = columnString(statement, 1)
+            let projectKey = columnString(statement, 2)
+            let threadID = columnString(statement, 3)
+            let unlockedAt = parseISO(columnString(statement, 4)) ?? .distantPast
+            let triggerSummary = columnString(statement, 5)
+            unlocks.append(AchievementUnlock(
+                achievementID: achievementID,
+                name: name,
+                projectKey: projectKey.isEmpty ? nil : projectKey,
+                threadID: threadID.isEmpty ? nil : threadID,
+                unlockedAt: unlockedAt,
+                triggerSummary: triggerSummary
+            ))
+        }
+        return unlocks
+    }
+
     /// Identities of unlocks already recorded, so re-indexing does not re-emit
     /// or re-notify them. Keys match `AchievementUnlock.unlockKey`.
     public func existingUnlockKeys() throws -> Set<String> {
@@ -119,6 +149,15 @@ public final class SQLiteStore {
     private func iso(_ date: Date?) -> String {
         guard let date else { return "" }
         return ISO8601DateFormatter().string(from: date)
+    }
+
+    private func parseISO(_ value: String) -> Date? {
+        ISO8601DateFormatter().date(from: value)
+    }
+
+    private func columnString(_ statement: OpaquePointer?, _ index: Int32) -> String {
+        guard let text = sqlite3_column_text(statement, index) else { return "" }
+        return String(cString: text)
     }
 
     public enum StoreError: Error {

@@ -33,4 +33,18 @@ public enum AchievementContractLoader {
             try decoder.decode(AchievementContract.self, from: Data(line.utf8))
         }
     }
+
+    public static func loadBundledV1() throws -> [AchievementContract] {
+        guard let url = Bundle.module.url(
+            forResource: "achievement-trigger-contracts-v1",
+            withExtension: "jsonl"
+        ) else {
+            throw ContractError.bundledContractsMissing
+        }
+        return try load(jsonlURL: url)
+    }
+
+    public enum ContractError: Error {
+        case bundledContractsMissing
+    }
 }

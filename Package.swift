@@ -12,6 +12,7 @@ let package = Package(
     targets: [
         .target(
             name: "VibeAchievementsCore",
+            resources: [.process("Resources")],
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),
         .executableTarget(name: "VibeAchievementsCLI", dependencies: ["VibeAchievementsCore"], path: "Sources/vibe-achievements-cli"),
