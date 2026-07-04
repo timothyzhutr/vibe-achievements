@@ -52,6 +52,14 @@ final class EventExtractorTests: XCTestCase {
         }
     }
 
+    func testImplementationOrFixLanguageIsDetected() {
+        for text in ["please implement the shelf", "fix the scan loop", "build the menu bar app"] {
+            let parsed = makeUserTranscript([text])
+            let events = EventExtractor.extract(from: parsed)
+            XCTAssertTrue(events.contains { $0.type == .implementationOrFixSeen }, "\(text.debugDescription) should count as implementation/fix language")
+        }
+    }
+
     private func makeUserTranscript(_ texts: [String]) -> ParsedTranscript {
         let messages = texts.enumerated().map { index, text in
             NormalizedMessage(id: "m\(index)", threadID: "claude_code:t", sourceTool: .claudeCode, sourceMessageID: nil, role: .user, timestamp: nil, text: text, rawType: "user")

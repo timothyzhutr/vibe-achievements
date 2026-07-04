@@ -50,10 +50,10 @@ public final class SQLiteStore {
     public func insert(unlock: AchievementUnlock) throws {
         let sql = """
         INSERT OR IGNORE INTO achievement_unlocks
-        (achievement_id, scope_key, name, project_key, thread_id, unlocked_at, trigger_summary)
-        VALUES (?, ?, ?, ?, ?, ?, ?);
+        (achievement_id, name, project_key, thread_id, unlocked_at, trigger_summary)
+        VALUES (?, ?, ?, ?, ?, ?);
         """
-        try execute(sql, [unlock.achievementID, unlock.scopeKey, unlock.name, unlock.projectKey ?? "", unlock.threadID ?? "", iso(unlock.unlockedAt), unlock.triggerSummary])
+        try execute(sql, [unlock.achievementID, unlock.name, unlock.projectKey ?? "", unlock.threadID ?? "", iso(unlock.unlockedAt), unlock.triggerSummary])
     }
 
     public func unlockCount() throws -> Int {
@@ -62,7 +62,7 @@ public final class SQLiteStore {
 
     public func allUnlocks() throws -> [AchievementUnlock] {
         let sql = """
-        SELECT achievement_id, scope_key, name, project_key, thread_id, unlocked_at, trigger_summary
+        SELECT achievement_id, name, project_key, thread_id, unlocked_at, trigger_summary
         FROM achievement_unlocks
         ORDER BY unlocked_at DESC, rowid DESC;
         """
@@ -73,18 +73,17 @@ public final class SQLiteStore {
         var unlocks: [AchievementUnlock] = []
         while sqlite3_step(statement) == SQLITE_ROW {
             let achievementID = columnString(statement, 0)
-            let scopeKey = columnString(statement, 1)
-            let name = columnString(statement, 2)
-            let projectKey = columnString(statement, 3)
-            let threadID = columnString(statement, 4)
-            let unlockedAt = parseISO(columnString(statement, 5)) ?? .distantPast
-            let triggerSummary = columnString(statement, 6)
+            let name = columnString(statement, 1)
+            let projectKey = columnString(statement, 2)
+            let threadID = columnString(statement, 3)
+            let unlockedAt = parseISO(columnString(statement, 4)) ?? .distantPast
+            let triggerSummary = columnString(statement, 5)
             unlocks.append(AchievementUnlock(
                 achievementID: achievementID,
                 name: name,
                 projectKey: projectKey.isEmpty ? nil : projectKey,
                 threadID: threadID.isEmpty ? nil : threadID,
-                scopeKey: scopeKey,
+                scopeKey: "",
                 unlockedAt: unlockedAt,
                 triggerSummary: triggerSummary
             ))
@@ -118,27 +117,43 @@ public final class SQLiteStore {
     /// or re-notify them. Keys match `AchievementUnlock.unlockKey`.
     public func existingUnlockKeys() throws -> Set<String> {
         var statement: OpaquePointer?
-        let sql = "SELECT achievement_id, scope_key FROM achievement_unlocks;"
+        let sql = "SELECT achievement_id FROM achievement_unlocks;"
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { throw StoreError.prepareFailed }
         defer { sqlite3_finalize(statement) }
 
         var keys: Set<String> = []
         while sqlite3_step(statement) == SQLITE_ROW {
             let achievementID = columnString(statement, 0)
-            let scopeKey = columnString(statement, 1)
-            keys.insert(makeUnlockKey(achievementID: achievementID, scopeKey: scopeKey))
+            keys.insert(makeUnlockKey(achievementID: achievementID, scopeKey: ""))
         }
         return keys
     }
 
     private func migrate() throws {
-        // The unlock table's identity changed from (achievement_id, project_key)
-        // to a cooldown-derived scope. An older database lacks scope_key and has
-        // the wrong primary key, so recreate it and clear file fingerprints to
-        // force a full re-index that repopulates unlocks correctly.
-        let unlockColumns = try columnNames(of: "achievement_unlocks")
-        if !unlockColumns.isEmpty, !unlockColumns.contains("scope_key") {
+        // Achievement identity is global by achievement_id. Older development
+        // schemas keyed by project or cooldown scope, so collapse any repeats
+        // into the first recorded unlock and force changed-file discovery to run
+        // against the remaining locked achievement IDs.
+        if try tableNeedsGlobalAchievementIdentityMigration() {
+            try execute("""
+            CREATE TABLE achievement_unlocks_new (
+                achievement_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                project_key TEXT NOT NULL,
+                thread_id TEXT NOT NULL,
+                unlocked_at TEXT NOT NULL,
+                trigger_summary TEXT NOT NULL
+            );
+            """, [])
+            try execute("""
+            INSERT OR IGNORE INTO achievement_unlocks_new
+            (achievement_id, name, project_key, thread_id, unlocked_at, trigger_summary)
+            SELECT achievement_id, name, project_key, thread_id, unlocked_at, trigger_summary
+            FROM achievement_unlocks
+            ORDER BY unlocked_at ASC, rowid ASC;
+            """, [])
             try execute("DROP TABLE achievement_unlocks;", [])
+            try execute("ALTER TABLE achievement_unlocks_new RENAME TO achievement_unlocks;", [])
             try execute("DROP TABLE IF EXISTS source_files;", [])
         }
 
@@ -162,14 +177,12 @@ public final class SQLiteStore {
         """, [])
         try execute("""
         CREATE TABLE IF NOT EXISTS achievement_unlocks (
-            achievement_id TEXT NOT NULL,
-            scope_key TEXT NOT NULL,
+            achievement_id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             project_key TEXT NOT NULL,
             thread_id TEXT NOT NULL,
             unlocked_at TEXT NOT NULL,
-            trigger_summary TEXT NOT NULL,
-            PRIMARY KEY (achievement_id, scope_key)
+            trigger_summary TEXT NOT NULL
         );
         """, [])
         try execute("""
@@ -238,6 +251,30 @@ public final class SQLiteStore {
             names.insert(columnString(statement, 1)) // PRAGMA table_info: column 1 is name
         }
         return names
+    }
+
+    private func tableNeedsGlobalAchievementIdentityMigration() throws -> Bool {
+        let columns = try columnNames(of: "achievement_unlocks")
+        guard !columns.isEmpty else { return false }
+        return try primaryKeyColumns(of: "achievement_unlocks") != ["achievement_id"]
+    }
+
+    private func primaryKeyColumns(of table: String) throws -> [String] {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA table_info(\(table));", -1, &statement, nil) == SQLITE_OK else {
+            throw StoreError.prepareFailed
+        }
+        defer { sqlite3_finalize(statement) }
+
+        var columns: [(index: Int, name: String)] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let name = columnString(statement, 1) // PRAGMA table_info: column 1 is name
+            let primaryKeyIndex = Int(sqlite3_column_int(statement, 5))
+            if primaryKeyIndex > 0 {
+                columns.append((primaryKeyIndex, name))
+            }
+        }
+        return columns.sorted { $0.index < $1.index }.map(\.name)
     }
 
     public enum StoreError: Error {

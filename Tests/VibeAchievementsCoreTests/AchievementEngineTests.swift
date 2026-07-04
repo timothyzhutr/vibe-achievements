@@ -39,7 +39,7 @@ final class AchievementEngineTests: XCTestCase {
         XCTAssertTrue(secondPass.isEmpty)
     }
 
-    func testThreadScopedAchievementUnlocksAgainInAnotherThreadSameProject() throws {
+    func testAchievementDoesNotUnlockAgainInAnotherThread() throws {
         let contracts = try loadSampleContracts()
         let correction = ["build me an app", "actually, wait, make it a CLI instead"]
 
@@ -47,16 +47,14 @@ final class AchievementEngineTests: XCTestCase {
         let unlocksA = AchievementEngine.evaluate(contracts: contracts, parsed: threadA, events: EventExtractor.extract(from: threadA))
         XCTAssertTrue(unlocksA.contains { $0.achievementID == "actually_wait" })
 
-        // A second thread in the same project must still unlock the once_per_thread
-        // achievement, since its scope is the thread, not the project.
-        let threadB = transcript(threadID: "claude_code:B", projectKey: "/tmp/p", userTexts: correction)
+        let threadB = transcript(threadID: "claude_code:B", projectKey: "/tmp/other-project", userTexts: correction)
         let unlocksB = AchievementEngine.evaluate(
             contracts: contracts,
             parsed: threadB,
             events: EventExtractor.extract(from: threadB),
             existingUnlockKeys: Set(unlocksA.map(\.unlockKey))
         )
-        XCTAssertTrue(unlocksB.contains { $0.achievementID == "actually_wait" })
+        XCTAssertFalse(unlocksB.contains { $0.achievementID == "actually_wait" })
     }
 
     func testProjectScopedAchievementDoesNotRepeatInSameProject() throws {
@@ -79,9 +77,48 @@ final class AchievementEngineTests: XCTestCase {
         XCTAssertFalse(unlocksB.contains { $0.achievementID == "rm_rf" })
     }
 
+    func testItWorksRequiresImplementationOrFixBeforeSuccess() throws {
+        let contracts = [itWorksContract()]
+
+        let successOnly = transcript(threadID: "claude_code:success", projectKey: "/tmp/p", userTexts: ["it works now"])
+        XCTAssertFalse(AchievementEngine
+            .evaluate(contracts: contracts, parsed: successOnly, events: EventExtractor.extract(from: successOnly))
+            .contains { $0.achievementID == "it_works_therefore_it_is" })
+
+        let successThenImplementation = transcript(threadID: "claude_code:reverse", projectKey: "/tmp/p", userTexts: ["it works now", "please implement the menu"])
+        XCTAssertFalse(AchievementEngine
+            .evaluate(contracts: contracts, parsed: successThenImplementation, events: EventExtractor.extract(from: successThenImplementation))
+            .contains { $0.achievementID == "it_works_therefore_it_is" })
+
+        let implementationThenSuccess = transcript(threadID: "claude_code:ordered", projectKey: "/tmp/p", userTexts: ["please implement the menu", "it works now"])
+        XCTAssertTrue(AchievementEngine
+            .evaluate(contracts: contracts, parsed: implementationThenSuccess, events: EventExtractor.extract(from: implementationThenSuccess))
+            .contains { $0.achievementID == "it_works_therefore_it_is" })
+    }
+
     private func loadSampleContracts() throws -> [AchievementContract] {
         let url = try XCTUnwrap(Bundle.module.url(forResource: "achievements-sample", withExtension: "jsonl"))
         return try AchievementContractLoader.load(jsonlURL: url)
+    }
+
+    private func itWorksContract() -> AchievementContract {
+        AchievementContract(
+            id: "it_works_therefore_it_is",
+            number: 29,
+            name: "It Works, Therefore It Is",
+            category: "vibe_coding_memes",
+            definition: "Implementation or fix language is followed by success language.",
+            detectionClass: "sequence",
+            signals: ["implementation_or_fix_terms_seen", "success_terms_seen_later"],
+            window: "same_thread",
+            exclusions: [],
+            cooldown: "once_per_thread",
+            confidence: "high",
+            status: "keep",
+            difficulty: "starter",
+            expectedFrequency: "weekly",
+            active: true
+        )
     }
 
     private func transcript(threadID: String, projectKey: String, userTexts: [String]) -> ParsedTranscript {

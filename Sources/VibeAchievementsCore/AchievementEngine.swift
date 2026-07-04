@@ -5,9 +5,8 @@ public struct AchievementUnlock: Codable, Equatable, Sendable {
     public var name: String
     public var projectKey: String?
     public var threadID: String?
-    /// The value that scopes this unlock's uniqueness, chosen from the
-    /// contract's cooldown: a thread id for `once_per_thread`, a project key for
-    /// `once_per_project*`, or "" for globally-unique achievements.
+    /// Context from the contract's cooldown, kept for diagnostics/display only.
+    /// Achievement identity is always global by `achievementID`.
     public var scopeKey: String
     public var unlockedAt: Date
     public var triggerSummary: String
@@ -22,8 +21,8 @@ public struct AchievementUnlock: Codable, Equatable, Sendable {
         self.triggerSummary = triggerSummary
     }
 
-    /// Stable identity for an unlock. Must match the key the store derives from
-    /// its columns.
+    /// Stable identity for an unlock. Achievements unlock once globally; project
+    /// and thread only describe where the first unlock happened.
     public var unlockKey: String {
         makeUnlockKey(achievementID: achievementID, scopeKey: scopeKey)
     }
@@ -31,19 +30,19 @@ public struct AchievementUnlock: Codable, Equatable, Sendable {
 
 /// Single source of truth for unlock identity, shared by the engine and store.
 public func makeUnlockKey(achievementID: String, scopeKey: String) -> String {
-    scopeKey.isEmpty ? achievementID : "\(achievementID)@\(scopeKey)"
+    achievementID
 }
 
 public enum AchievementEngine {
     public static func evaluate(contracts: [AchievementContract], parsed: ParsedTranscript, events: [ExtractedEvent], existingUnlockKeys: Set<String> = []) -> [AchievementUnlock] {
         var unlocks: [AchievementUnlock] = []
-        let activeContracts = contracts.filter { $0.active && $0.status == "keep" }
+        let activeContracts = contracts.filter { $0.active && $0.status == "keep" && !existingUnlockKeys.contains($0.id) }
 
         unlockFirstAchievementIfNeeded(activeContracts: activeContracts, existingUnlockKeys: existingUnlockKeys, unlocks: &unlocks)
         unlock("actually_wait", if: events.contains { $0.type == .correctionLanguageSeen }, activeContracts: activeContracts, parsed: parsed, unlocks: &unlocks, summary: "Changed direction mid-thread.")
         unlock("one_more_prompt", if: events.contains { $0.type == .oneMorePromptSeen }, activeContracts: activeContracts, parsed: parsed, unlocks: &unlocks, summary: "Continued a thread for 10 or more user turns.")
         unlock("rm_rf", if: hasSequence([.destructiveCleanupSeen, .recoverySeen], events) || hasSequence([.destructiveCleanupSeen, .successSeen], events), activeContracts: activeContracts, parsed: parsed, unlocks: &unlocks, summary: "Destructive cleanup was followed by recovery.")
-        unlock("it_works_therefore_it_is", if: events.contains { $0.type == .successSeen }, activeContracts: activeContracts, parsed: parsed, unlocks: &unlocks, summary: "Something works now.")
+        unlock("it_works_therefore_it_is", if: hasSequence([.implementationOrFixSeen, .successSeen], events), activeContracts: activeContracts, parsed: parsed, unlocks: &unlocks, summary: "Implementation or fix work was followed by success.")
 
         return unlocks.filter { !existingUnlockKeys.contains($0.unlockKey) }
     }

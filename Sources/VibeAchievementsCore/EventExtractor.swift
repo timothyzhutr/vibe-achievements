@@ -2,6 +2,7 @@ import Foundation
 
 public enum EventType: String, Codable, Equatable, Sendable {
     case correctionLanguageSeen = "correction_language_seen"
+    case implementationOrFixSeen = "implementation_or_fix_seen"
     case stackTraceSeen = "stack_trace_seen"
     case destructiveCleanupSeen = "destructive_cleanup_seen"
     case recoverySeen = "recovery_seen"
@@ -45,6 +46,9 @@ public enum EventExtractor {
             }
             if containsAny(message.text, ["Traceback", "Exception", "TypeError", "ReferenceError", "SyntaxError", "exit code"]) {
                 events.append(messageEvent(.stackTraceSeen, parsed: parsed, message: message, confidence: "high"))
+            }
+            if containsAny(lowered, ["implement", "implemented", "build", "built", "fix", "fixed", "patch", "code", "scaffold", "create files"]) {
+                events.append(messageEvent(.implementationOrFixSeen, parsed: parsed, message: message, confidence: "high"))
             }
             if containsAny(lowered, ["rm -rf", "delete node_modules", "wipe", "nuke", "start over", "clean slate"]) {
                 events.append(messageEvent(.destructiveCleanupSeen, parsed: parsed, message: message, confidence: "high"))
