@@ -6,7 +6,8 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "VibeAchievementsCore", targets: ["VibeAchievementsCore"]),
-        .executable(name: "vibe-achievements-cli", targets: ["VibeAchievementsCLI"])
+        .executable(name: "vibe-achievements-cli", targets: ["VibeAchievementsCLI"]),
+        .executable(name: "vibe-achievements-app", targets: ["VibeAchievementsApp"])
     ],
     targets: [
         .target(
@@ -14,6 +15,7 @@ let package = Package(
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),
         .executableTarget(name: "VibeAchievementsCLI", dependencies: ["VibeAchievementsCore"], path: "Sources/vibe-achievements-cli"),
+        .executableTarget(name: "VibeAchievementsApp", dependencies: ["VibeAchievementsCore"], path: "Sources/vibe-achievements-app"),
         .testTarget(
             name: "VibeAchievementsCoreTests",
             dependencies: ["VibeAchievementsCore"],

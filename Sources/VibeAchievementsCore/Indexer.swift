@@ -1,0 +1,40 @@
+import Foundation
+
+public enum Indexer {
+    public static func index(paths: [URL], contractsURL: URL, storePath: String) throws -> [AchievementUnlock] {
+        let contracts = try AchievementContractLoader.load(jsonlURL: contractsURL)
+        let store = try SQLiteStore(path: storePath)
+        var unlockedKeys = try store.existingUnlockKeys()
+        var allUnlocks: [AchievementUnlock] = []
+
+        for path in paths where path.pathExtension == "jsonl" {
+            let parsed = try parseTranscript(at: path)
+
+            try store.upsert(thread: parsed.thread)
+            let events = EventExtractor.extract(from: parsed)
+            let unlocks = AchievementEngine.evaluate(contracts: contracts, parsed: parsed, events: events, existingUnlockKeys: unlockedKeys)
+            for unlock in unlocks {
+                try store.insert(unlock: unlock)
+                unlockedKeys.insert(unlock.unlockKey)
+            }
+            allUnlocks.append(contentsOf: unlocks)
+        }
+
+        return allUnlocks
+    }
+
+    private static func parseTranscript(at path: URL) throws -> ParsedTranscript {
+        if path.path.contains("/.claude/projects/") {
+            return try ClaudeCodeParser.parse(fileURL: path)
+        }
+        if path.path.contains("/.codex/") || path.lastPathComponent.hasPrefix("rollout-") {
+            return try CodexParser.parse(fileURL: path)
+        }
+        let data = try Data(contentsOf: path)
+        let preview = String(decoding: data.prefix(512), as: UTF8.self)
+        if preview.contains("\"session_meta\"") || preview.contains("\"response_item\"") {
+            return try CodexParser.parse(fileURL: path)
+        }
+        return try ClaudeCodeParser.parse(fileURL: path)
+    }
+}

@@ -8,7 +8,8 @@ enum TextContent {
         if let array = value as? [Any] {
             return array.compactMap { item in
                 guard let object = item as? [String: Any],
-                      object["type"] as? String == "text"
+                      let type = object["type"] as? String,
+                      type == "text" || type == "input_text" || type == "output_text"
                 else { return nil }
                 return object["text"] as? String
             }.joined(separator: "\n")
