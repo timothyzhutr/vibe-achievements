@@ -2,58 +2,61 @@ import AppKit
 import SwiftUI
 
 enum LogoAsset {
-    static func nsImage(size: NSSize? = nil) -> NSImage? {
-        guard let url = Bundle.module.url(forResource: "VibeAchievementsLogo", withExtension: "svg"),
-              let image = NSImage(contentsOf: url)
-        else {
-            return nil
-        }
-        if let size {
-            image.size = size
-        }
-        image.isTemplate = false
-        return image
+    static func statusBarImage() -> NSImage {
+        markImage(size: NSSize(width: 18, height: 18))
     }
 
-    static func statusBarImage() -> NSImage {
-        let size = NSSize(width: 18, height: 18)
+    static func markImage(size: NSSize) -> NSImage {
         let image = NSImage(size: size, flipped: false) { rect in
-            NSColor.black.setStroke()
-            NSColor.black.setFill()
+            let length = min(rect.width, rect.height)
+            let xOffset = rect.midX - length / 2
+            let yOffset = rect.midY - length / 2
 
+            func point(_ x: CGFloat, _ y: CGFloat) -> NSPoint {
+                NSPoint(
+                    x: xOffset + length * (x / 18),
+                    y: yOffset + length * (y / 18)
+                )
+            }
+
+            func scaled(_ value: CGFloat) -> CGFloat {
+                length * (value / 18)
+            }
+
+            NSColor.black.setStroke()
             let badge = NSBezierPath()
-            badge.move(to: NSPoint(x: rect.midX, y: rect.maxY - 2.5))
-            badge.line(to: NSPoint(x: rect.maxX - 3, y: rect.maxY - 6.5))
-            badge.line(to: NSPoint(x: rect.maxX - 3, y: rect.minY + 6.5))
-            badge.line(to: NSPoint(x: rect.midX, y: rect.minY + 2.5))
-            badge.line(to: NSPoint(x: rect.minX + 3, y: rect.minY + 6.5))
-            badge.line(to: NSPoint(x: rect.minX + 3, y: rect.maxY - 6.5))
+            badge.move(to: point(9, 15.5))
+            badge.line(to: point(15, 11.5))
+            badge.line(to: point(15, 6.5))
+            badge.line(to: point(9, 2.5))
+            badge.line(to: point(3, 6.5))
+            badge.line(to: point(3, 11.5))
             badge.close()
-            badge.lineWidth = 1.7
+            badge.lineWidth = scaled(1.7)
             badge.stroke()
 
             let chevron = NSBezierPath()
-            chevron.move(to: NSPoint(x: 7.2, y: 6.1))
-            chevron.line(to: NSPoint(x: 4.7, y: 9))
-            chevron.line(to: NSPoint(x: 7.2, y: 11.9))
-            chevron.lineWidth = 1.9
+            chevron.move(to: point(7.2, 6.1))
+            chevron.line(to: point(4.7, 9))
+            chevron.line(to: point(7.2, 11.9))
+            chevron.lineWidth = scaled(1.9)
             chevron.lineCapStyle = .round
             chevron.lineJoinStyle = .round
             chevron.stroke()
 
             let cursor = NSBezierPath()
-            cursor.move(to: NSPoint(x: 9.2, y: 12.1))
-            cursor.line(to: NSPoint(x: 12.3, y: 12.1))
-            cursor.lineWidth = 1.8
+            cursor.move(to: point(9.2, 12.1))
+            cursor.line(to: point(12.3, 12.1))
+            cursor.lineWidth = scaled(1.8)
             cursor.lineCapStyle = .round
             cursor.stroke()
 
             let sparkle = NSBezierPath()
-            sparkle.move(to: NSPoint(x: 12.5, y: 5.1))
-            sparkle.line(to: NSPoint(x: 12.5, y: 8.5))
-            sparkle.move(to: NSPoint(x: 10.8, y: 6.8))
-            sparkle.line(to: NSPoint(x: 14.2, y: 6.8))
-            sparkle.lineWidth = 1.4
+            sparkle.move(to: point(12.5, 5.1))
+            sparkle.line(to: point(12.5, 8.5))
+            sparkle.move(to: point(10.8, 6.8))
+            sparkle.line(to: point(14.2, 6.8))
+            sparkle.lineWidth = scaled(1.4)
             sparkle.lineCapStyle = .round
             sparkle.stroke()
 
@@ -68,11 +71,11 @@ struct LogoMarkView: View {
     var size: CGFloat = 32
 
     var body: some View {
-        if let image = LogoAsset.nsImage(size: NSSize(width: size, height: size)) {
-            Image(nsImage: image)
-                .resizable()
-                .frame(width: size, height: size)
-                .accessibilityHidden(true)
-        }
+        Image(nsImage: LogoAsset.markImage(size: NSSize(width: size, height: size)))
+            .renderingMode(.template)
+            .resizable()
+            .frame(width: size, height: size)
+            .foregroundStyle(.primary)
+            .accessibilityHidden(true)
     }
 }
