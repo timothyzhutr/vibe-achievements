@@ -39,7 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if shelfWindow == nil {
             shelfWindow = NSWindow(contentViewController: NSHostingController(rootView: AchievementShelfView(state: appState)))
             shelfWindow?.title = "Vibe Achievements"
-            shelfWindow?.setContentSize(NSSize(width: 560, height: 420))
+            shelfWindow?.setContentSize(NSSize(width: 720, height: 620))
             // We keep a strong reference and reuse the window; the default
             // release-when-closed would deallocate it under us on close.
             shelfWindow?.isReleasedWhenClosed = false

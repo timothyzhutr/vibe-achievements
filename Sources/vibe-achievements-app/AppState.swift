@@ -6,6 +6,7 @@ import VibeAchievementsCore
 final class AppState: ObservableObject {
     @Published var sourceSummary: String = "Not indexed yet"
     @Published var recentUnlocks: [AchievementUnlock] = []
+    @Published var achievementContracts: [AchievementContract] = []
     @Published var lastScanSummary: String = "No scan yet"
     @Published var lastError: String?
 
@@ -38,6 +39,7 @@ final class AppState: ObservableObject {
         sourceSummary = result.sourceSummary
         lastScanSummary = result.lastScanSummary
         lastError = result.error
+        achievementContracts = result.achievementContracts
         if let recent = result.recentUnlocks {
             recentUnlocks = recent
         }
@@ -72,6 +74,7 @@ final class AppState: ObservableObject {
 private struct ScanResult: Sendable {
     var sourceSummary: String
     var lastScanSummary: String
+    var achievementContracts: [AchievementContract]
     var recentUnlocks: [AchievementUnlock]?
     var newUnlocks: [AchievementUnlock]
     var wasBackfill: Bool
@@ -100,6 +103,7 @@ extension AppState {
                 withIntermediateDirectories: true
             )
             let store = try SQLiteStore(path: storePath)
+            let contracts = try AchievementContractLoader.loadBundledV1()
             let knownFingerprints = try store.knownFileFingerprints()
             // A store with no recorded fingerprints is a fresh install: its first
             // productive scan is a historical backfill, which must not spam.
@@ -116,7 +120,6 @@ extension AppState {
             var newUnlocks: [AchievementUnlock] = []
             var warnings: [IndexWarning] = []
             if !changed.isEmpty {
-                let contracts = try AchievementContractLoader.loadBundledV1()
                 let result = try Indexer.index(paths: changed.map(\.url), contracts: contracts, store: store)
                 newUnlocks = result.unlocks
                 warnings = result.warnings
@@ -134,6 +137,7 @@ extension AppState {
             return ScanResult(
                 sourceSummary: sourceSummary,
                 lastScanSummary: scanSummary(changedFileCount: changed.count, newUnlockCount: newUnlocks.count),
+                achievementContracts: contracts,
                 recentUnlocks: recent,
                 newUnlocks: newUnlocks,
                 wasBackfill: wasBackfill,
@@ -145,6 +149,7 @@ extension AppState {
             return ScanResult(
                 sourceSummary: sourceSummary,
                 lastScanSummary: "Scan failed",
+                achievementContracts: [],
                 recentUnlocks: nil,
                 newUnlocks: [],
                 wasBackfill: false,
