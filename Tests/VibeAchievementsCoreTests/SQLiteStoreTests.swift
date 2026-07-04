@@ -50,4 +50,22 @@ final class SQLiteStoreTests: XCTestCase {
         XCTAssertEqual(unlocks.first?.projectKey, "/tmp/b")
         XCTAssertEqual(unlocks.first?.threadID, "thread-b")
     }
+
+    func testFileFingerprintsPersistAndUpdate() throws {
+        let path = NSTemporaryDirectory() + UUID().uuidString + ".sqlite"
+        let store = try SQLiteStore(path: path)
+
+        XCTAssertTrue(try store.knownFileFingerprints().isEmpty)
+
+        try store.recordFileFingerprint(path: "/tmp/a.jsonl", fingerprint: "fp-1")
+        XCTAssertEqual(try store.knownFileFingerprints(), ["/tmp/a.jsonl": "fp-1"])
+
+        // Re-recording the same path overwrites rather than duplicating.
+        try store.recordFileFingerprint(path: "/tmp/a.jsonl", fingerprint: "fp-2")
+        XCTAssertEqual(try store.knownFileFingerprints(), ["/tmp/a.jsonl": "fp-2"])
+
+        // Fingerprints survive reopening the same database file.
+        let reopened = try SQLiteStore(path: path)
+        XCTAssertEqual(try reopened.knownFileFingerprints(), ["/tmp/a.jsonl": "fp-2"])
+    }
 }

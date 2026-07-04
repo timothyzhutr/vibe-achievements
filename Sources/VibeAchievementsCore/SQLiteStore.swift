@@ -6,9 +6,18 @@ public final class SQLiteStore {
 
     public init(path: String) throws {
         guard sqlite3_open(path, &db) == SQLITE_OK else {
+            // sqlite3_open may allocate a handle even on failure; release it.
+            sqlite3_close(db)
+            db = nil
             throw StoreError.openFailed
         }
-        try migrate()
+        do {
+            try migrate()
+        } catch {
+            sqlite3_close(db)
+            db = nil
+            throw error
+        }
     }
 
     deinit {
@@ -70,6 +79,28 @@ public final class SQLiteStore {
         return unlocks
     }
 
+    /// Persisted per-file fingerprints (path -> fingerprint) so that only new or
+    /// changed transcripts are re-parsed across app launches.
+    public func knownFileFingerprints() throws -> [String: String] {
+        var statement: OpaquePointer?
+        let sql = "SELECT path, fingerprint FROM source_files;"
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { throw StoreError.prepareFailed }
+        defer { sqlite3_finalize(statement) }
+
+        var fingerprints: [String: String] = [:]
+        while sqlite3_step(statement) == SQLITE_ROW {
+            fingerprints[columnString(statement, 0)] = columnString(statement, 1)
+        }
+        return fingerprints
+    }
+
+    public func recordFileFingerprint(path: String, fingerprint: String) throws {
+        try execute(
+            "INSERT OR REPLACE INTO source_files (path, fingerprint) VALUES (?, ?);",
+            [path, fingerprint]
+        )
+    }
+
     /// Identities of unlocks already recorded, so re-indexing does not re-emit
     /// or re-notify them. Keys match `AchievementUnlock.unlockKey`.
     public func existingUnlockKeys() throws -> Set<String> {
@@ -115,6 +146,12 @@ public final class SQLiteStore {
             unlocked_at TEXT NOT NULL,
             trigger_summary TEXT NOT NULL,
             PRIMARY KEY (achievement_id, project_key)
+        );
+        """, [])
+        try execute("""
+        CREATE TABLE IF NOT EXISTS source_files (
+            path TEXT PRIMARY KEY,
+            fingerprint TEXT NOT NULL
         );
         """, [])
     }

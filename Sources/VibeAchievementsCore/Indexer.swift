@@ -8,6 +8,10 @@ public enum Indexer {
 
     public static func index(paths: [URL], contracts: [AchievementContract], storePath: String) throws -> [AchievementUnlock] {
         let store = try SQLiteStore(path: storePath)
+        return try index(paths: paths, contracts: contracts, store: store)
+    }
+
+    public static func index(paths: [URL], contracts: [AchievementContract], store: SQLiteStore) throws -> [AchievementUnlock] {
         var unlockedKeys = try store.existingUnlockKeys()
         var allUnlocks: [AchievementUnlock] = []
 
