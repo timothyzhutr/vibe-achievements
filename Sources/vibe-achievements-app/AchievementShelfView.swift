@@ -5,8 +5,11 @@ struct AchievementShelfView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Vibe Achievements")
-                .font(.title2)
+            HStack(spacing: 10) {
+                LogoMarkView(size: 34)
+                Text("Vibe Achievements")
+                    .font(.title2)
+            }
             Text(state.sourceSummary)
                 .foregroundStyle(.secondary)
             Text(state.lastScanSummary)
