@@ -85,6 +85,20 @@ final class ClaudeCodeParserTests: XCTestCase {
         XCTAssertNil(parsed.thread.rawTokenCount)
     }
 
+    func testDoesNotCountToolResultUserRecordsAsHumanTurns() throws {
+        let parsed = try parseJSONL("""
+        {"type":"user","timestamp":"2026-07-04T01:00:00.000Z","sessionId":"session-1","message":{"role":"user","content":"run the tests"}}
+        {"type":"assistant","timestamp":"2026-07-04T01:00:05.000Z","sessionId":"session-1","message":{"role":"assistant","content":[{"type":"text","text":"Running them."}]}}
+        {"type":"user","timestamp":"2026-07-04T01:00:10.000Z","sessionId":"session-1","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"3 passed"}]}}
+        {"type":"user","timestamp":"2026-07-04T01:00:20.000Z","sessionId":"session-1","message":{"role":"user","content":"nice, ship it"}}
+        """)
+
+        // Two real human prompts, not three — the tool_result row is excluded.
+        XCTAssertEqual(parsed.thread.userTurnCount, 2)
+        XCTAssertEqual(parsed.thread.messageCount, 3)
+        XCTAssertFalse(parsed.messages.contains { $0.text.isEmpty })
+    }
+
     private func parseJSONL(_ contents: String) throws -> ParsedTranscript {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

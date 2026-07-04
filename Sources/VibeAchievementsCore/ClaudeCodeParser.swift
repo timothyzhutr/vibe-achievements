@@ -40,6 +40,13 @@ public enum ClaudeCodeParser {
             let role = parseRole(messageObject?["role"] as? String ?? type)
             let content = TextContent.extract(from: messageObject?["content"])
 
+            // Claude Code records tool results as top-level `user` entries whose
+            // content is only tool_result blocks. They are not human turns, so
+            // skip them to avoid inflating user-turn/message/token counts.
+            if type == "user", isToolResultOnly(messageObject?["content"]) {
+                continue
+            }
+
             if let usage = messageObject?["usage"] as? [String: Any] {
                 sawUsage = true
                 rawTokens += usage["input_tokens"] as? Int ?? 0
@@ -87,6 +94,15 @@ public enum ClaudeCodeParser {
         )
 
         return ParsedTranscript(thread: thread, messages: messages)
+    }
+
+    /// True when a message's content is an array made up solely of tool_result
+    /// blocks (no human text). A string or mixed/text content returns false.
+    private static func isToolResultOnly(_ content: Any?) -> Bool {
+        guard let array = content as? [Any], !array.isEmpty else { return false }
+        return array.allSatisfy { item in
+            (item as? [String: Any])?["type"] as? String == "tool_result"
+        }
     }
 
     private static func parseISODate(_ value: String?) -> Date? {

@@ -28,6 +28,22 @@ final class EventExtractorTests: XCTestCase {
         XCTAssertTrue(events.contains { $0.type == .correctionLanguageSeen })
     }
 
+    func testNegatedFailureIsNotTreatedAsSuccess() {
+        for text in ["it is still not fixed", "the tests are not passing yet", "that didn't get it working"] {
+            let parsed = makeUserTranscript(["build the app", text])
+            let events = EventExtractor.extract(from: parsed)
+            XCTAssertFalse(events.contains { $0.type == .successSeen }, "\(text.debugDescription) should not count as success")
+        }
+    }
+
+    func testAffirmativeSuccessIsStillDetected() {
+        for text in ["it works now", "the failing test is fixed", "tests are passing"] {
+            let parsed = makeUserTranscript(["build the app", text])
+            let events = EventExtractor.extract(from: parsed)
+            XCTAssertTrue(events.contains { $0.type == .successSeen }, "\(text.debugDescription) should count as success")
+        }
+    }
+
     private func makeUserTranscript(_ texts: [String]) -> ParsedTranscript {
         let messages = texts.enumerated().map { index, text in
             NormalizedMessage(id: "m\(index)", threadID: "claude_code:t", sourceTool: .claudeCode, sourceMessageID: nil, role: .user, timestamp: nil, text: text, rawType: "user")

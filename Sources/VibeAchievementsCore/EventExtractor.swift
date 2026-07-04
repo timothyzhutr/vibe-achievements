@@ -52,7 +52,7 @@ public enum EventExtractor {
             if containsAny(lowered, ["reinstall", "rebuild", "regenerate", "restore"]) {
                 events.append(messageEvent(.recoverySeen, parsed: parsed, message: message, confidence: "medium"))
             }
-            if containsAny(lowered, ["it works", "fixed", "passing", "solved", "works now"]) {
+            if mentionsAffirmativeSuccess(lowered) {
                 events.append(messageEvent(.successSeen, parsed: parsed, message: message, confidence: "high"))
             }
         }
@@ -62,6 +62,25 @@ public enum EventExtractor {
 
     private static func containsAny(_ text: String, _ needles: [String]) -> Bool {
         needles.contains { text.contains($0) }
+    }
+
+    private static let successTerms = ["it works", "works now", "fixed", "passing", "solved"]
+
+    /// True when the text claims success without a nearby negation. Guards
+    /// against "still not fixed" / "tests are not passing" substring-matching a
+    /// success term. `text` is expected lowercased.
+    private static func mentionsAffirmativeSuccess(_ text: String) -> Bool {
+        for term in successTerms {
+            var searchStart = text.startIndex
+            while let range = text.range(of: term, range: searchStart..<text.endIndex) {
+                let windowStart = text.index(range.lowerBound, offsetBy: -18, limitedBy: text.startIndex) ?? text.startIndex
+                let preceding = " " + text[windowStart..<range.lowerBound] + " "
+                let negated = [" not ", " no ", " never ", " cannot ", " without ", "n't "].contains { preceding.contains($0) }
+                if !negated { return true }
+                searchStart = range.upperBound
+            }
+        }
+        return false
     }
 
     private static func threadEvent(_ type: EventType, parsed: ParsedTranscript) -> ExtractedEvent {
