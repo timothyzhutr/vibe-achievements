@@ -26,6 +26,10 @@ let package = Package(
             name: "VibeAchievementsCoreTests",
             dependencies: ["VibeAchievementsCore"],
             resources: [.process("Fixtures")]
+        ),
+        .testTarget(
+            name: "VibeAchievementsAppTests",
+            dependencies: ["VibeAchievementsApp", "VibeAchievementsCore"]
         )
     ]
 )

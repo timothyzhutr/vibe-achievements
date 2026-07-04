@@ -60,9 +60,33 @@ final class EventExtractorTests: XCTestCase {
         }
     }
 
+    func testNonConversationRolesAreIgnoredForKeywordEvents() {
+        let parsed = makeTranscript([
+            (.unknown, "developer note: rm -rf node_modules; tests are passing"),
+            (.user, "hello there")
+        ])
+
+        let events = EventExtractor.extract(from: parsed)
+
+        XCTAssertFalse(events.contains { $0.type == .destructiveCleanupSeen })
+        XCTAssertFalse(events.contains { $0.type == .successSeen })
+    }
+
+    func testDestructiveCleanupWarningsAreIgnored() {
+        let warning = makeUserTranscript(["do not run rm -rf; restore the backup instead"])
+        XCTAssertFalse(EventExtractor.extract(from: warning).contains { $0.type == .destructiveCleanupSeen })
+
+        let cleanup = makeUserTranscript(["rm -rf node_modules and reinstall"])
+        XCTAssertTrue(EventExtractor.extract(from: cleanup).contains { $0.type == .destructiveCleanupSeen })
+    }
+
     private func makeUserTranscript(_ texts: [String]) -> ParsedTranscript {
-        let messages = texts.enumerated().map { index, text in
-            NormalizedMessage(id: "m\(index)", threadID: "claude_code:t", sourceTool: .claudeCode, sourceMessageID: nil, role: .user, timestamp: nil, text: text, rawType: "user")
+        makeTranscript(texts.map { (.user, $0) })
+    }
+
+    private func makeTranscript(_ entries: [(MessageRole, String)]) -> ParsedTranscript {
+        let messages = entries.enumerated().map { index, entry in
+            NormalizedMessage(id: "m\(index)", threadID: "claude_code:t", sourceTool: .claudeCode, sourceMessageID: nil, role: entry.0, timestamp: nil, text: entry.1, rawType: entry.0.rawValue)
         }
         let thread = NormalizedThread(id: "claude_code:t", sourceTool: .claudeCode, sourceThreadID: "t", sourcePath: "/tmp/t.jsonl", projectPath: "/tmp/p", projectKey: "/tmp/p", title: nil, createdAt: nil, updatedAt: nil, messageCount: messages.count, userTurnCount: messages.count, assistantTurnCount: 0, estimatedTokens: 1, rawTokenCount: nil)
         return ParsedTranscript(thread: thread, messages: messages)

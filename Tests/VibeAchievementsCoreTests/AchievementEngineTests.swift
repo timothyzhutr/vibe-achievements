@@ -96,6 +96,23 @@ final class AchievementEngineTests: XCTestCase {
             .contains { $0.achievementID == "it_works_therefore_it_is" })
     }
 
+    func testMetaAchievementRequiresARealUnlock() throws {
+        let contracts = [metaContract(), actuallyWaitContract()]
+
+        let noMatch = transcript(threadID: "claude_code:quiet", projectKey: "/tmp/p", userTexts: ["hello there"])
+        XCTAssertTrue(AchievementEngine
+            .evaluate(contracts: contracts, parsed: noMatch, events: EventExtractor.extract(from: noMatch))
+            .isEmpty)
+
+        let firstRealUnlock = transcript(threadID: "claude_code:correction", projectKey: "/tmp/p", userTexts: ["build the app", "actually make it a CLI"])
+        XCTAssertEqual(
+            Set(AchievementEngine
+                .evaluate(contracts: contracts, parsed: firstRealUnlock, events: EventExtractor.extract(from: firstRealUnlock))
+                .map(\.achievementID)),
+            ["actually_wait", "achievement_unlocked_unlocking_achievement"]
+        )
+    }
+
     private func loadSampleContracts() throws -> [AchievementContract] {
         let url = try XCTUnwrap(Bundle.module.url(forResource: "achievements-sample", withExtension: "jsonl"))
         return try AchievementContractLoader.load(jsonlURL: url)
@@ -111,6 +128,46 @@ final class AchievementEngineTests: XCTestCase {
             detectionClass: "sequence",
             signals: ["implementation_or_fix_terms_seen", "success_terms_seen_later"],
             window: "same_thread",
+            exclusions: [],
+            cooldown: "once_per_thread",
+            confidence: "high",
+            status: "keep",
+            difficulty: "starter",
+            expectedFrequency: "weekly",
+            active: true
+        )
+    }
+
+    private func metaContract() -> AchievementContract {
+        AchievementContract(
+            id: "achievement_unlocked_unlocking_achievement",
+            number: 1,
+            name: "Achievement Unlocked: Unlocking Achievement",
+            category: "meta",
+            definition: "The first achievement unlocks.",
+            detectionClass: "metadata",
+            signals: ["first_achievement_unlocked"],
+            window: "all_time",
+            exclusions: [],
+            cooldown: "once_per_user",
+            confidence: "high",
+            status: "keep",
+            difficulty: "starter",
+            expectedFrequency: "once",
+            active: true
+        )
+    }
+
+    private func actuallyWaitContract() -> AchievementContract {
+        AchievementContract(
+            id: "actually_wait",
+            number: 12,
+            name: "Actually, Wait",
+            category: "prompting_and_context",
+            definition: "The user changes direction mid-thread.",
+            detectionClass: "keyword",
+            signals: ["correction_terms"],
+            window: "same_thread_after_first_user_turn",
             exclusions: [],
             cooldown: "once_per_thread",
             confidence: "high",

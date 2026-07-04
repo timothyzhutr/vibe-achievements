@@ -38,17 +38,18 @@ public enum AchievementEngine {
         var unlocks: [AchievementUnlock] = []
         let activeContracts = contracts.filter { $0.active && $0.status == "keep" && !existingUnlockKeys.contains($0.id) }
 
-        unlockFirstAchievementIfNeeded(activeContracts: activeContracts, existingUnlockKeys: existingUnlockKeys, unlocks: &unlocks)
         unlock("actually_wait", if: events.contains { $0.type == .correctionLanguageSeen }, activeContracts: activeContracts, parsed: parsed, unlocks: &unlocks, summary: "Changed direction mid-thread.")
         unlock("one_more_prompt", if: events.contains { $0.type == .oneMorePromptSeen }, activeContracts: activeContracts, parsed: parsed, unlocks: &unlocks, summary: "Continued a thread for 10 or more user turns.")
         unlock("rm_rf", if: hasSequence([.destructiveCleanupSeen, .recoverySeen], events) || hasSequence([.destructiveCleanupSeen, .successSeen], events), activeContracts: activeContracts, parsed: parsed, unlocks: &unlocks, summary: "Destructive cleanup was followed by recovery.")
         unlock("it_works_therefore_it_is", if: hasSequence([.implementationOrFixSeen, .successSeen], events), activeContracts: activeContracts, parsed: parsed, unlocks: &unlocks, summary: "Implementation or fix work was followed by success.")
+        unlockFirstAchievementIfNeeded(activeContracts: activeContracts, existingUnlockKeys: existingUnlockKeys, unlocks: &unlocks)
 
         return unlocks.filter { !existingUnlockKeys.contains($0.unlockKey) }
     }
 
     private static func unlockFirstAchievementIfNeeded(activeContracts: [AchievementContract], existingUnlockKeys: Set<String>, unlocks: inout [AchievementUnlock]) {
         guard existingUnlockKeys.isEmpty,
+              !unlocks.isEmpty,
               let contract = activeContracts.first(where: { $0.id == "achievement_unlocked_unlocking_achievement" })
         else { return }
         unlocks.append(AchievementUnlock(achievementID: contract.id, name: contract.name, projectKey: nil, threadID: nil, unlockedAt: Date(), triggerSummary: "Unlocked the first achievement."))

@@ -42,7 +42,7 @@ final class AppState: ObservableObject {
             recentUnlocks = recent
         }
 
-        guard sendNotifications, result.error == nil, !result.newUnlocks.isEmpty else { return }
+        guard Self.shouldSendUnlockNotifications(sendNotifications: sendNotifications, hardError: result.hardError, newUnlockCount: result.newUnlocks.count) else { return }
         if result.wasBackfill {
             // First index of existing history: one summary instead of a burst.
             let count = result.newUnlocks.count
@@ -76,9 +76,12 @@ private struct ScanResult: Sendable {
     var newUnlocks: [AchievementUnlock]
     var wasBackfill: Bool
     var error: String?
+    var hardError: String?
 }
 
 extension AppState {
+    nonisolated static let detectorFingerprintVersion = "detectors-v2"
+
     nonisolated private static func performScan(storePath: String) async -> ScanResult {
         let locations = SourceDiscovery.discover()
         var parts: [String] = []
@@ -118,9 +121,12 @@ extension AppState {
                 newUnlocks = result.unlocks
                 warnings = result.warnings
                 // Record fingerprints even for files that produced no unlocks so
-                // they are not re-parsed until they actually change again.
+                // they are not re-parsed until they actually change again. Files
+                // that failed to parse are deliberately retried on later scans.
                 for entry in changed {
-                    try store.recordFileFingerprint(path: entry.url.path, fingerprint: entry.fingerprint)
+                    if shouldRecordFingerprint(for: entry.url.path, warnings: warnings) {
+                        try store.recordFileFingerprint(path: entry.url.path, fingerprint: entry.fingerprint)
+                    }
                 }
             }
 
@@ -131,26 +137,37 @@ extension AppState {
                 recentUnlocks: recent,
                 newUnlocks: newUnlocks,
                 wasBackfill: wasBackfill,
-                error: warningSummary(for: warnings)
+                error: warningSummary(for: warnings),
+                hardError: nil
             )
         } catch {
+            let message = String(describing: error)
             return ScanResult(
                 sourceSummary: sourceSummary,
                 lastScanSummary: "Scan failed",
                 recentUnlocks: nil,
                 newUnlocks: [],
                 wasBackfill: false,
-                error: String(describing: error)
+                error: message,
+                hardError: message
             )
         }
     }
 
     /// Cheap change-detection fingerprint: modification time plus size.
-    nonisolated private static func fingerprint(for url: URL) -> String {
+    nonisolated static func fingerprint(for url: URL) -> String {
         let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
         let modified = values?.contentModificationDate?.timeIntervalSince1970 ?? 0
         let size = values?.fileSize ?? 0
-        return "\(modified)-\(size)"
+        return "\(detectorFingerprintVersion)-\(modified)-\(size)"
+    }
+
+    nonisolated static func shouldRecordFingerprint(for path: String, warnings: [IndexWarning]) -> Bool {
+        !warnings.contains { $0.path == path }
+    }
+
+    nonisolated static func shouldSendUnlockNotifications(sendNotifications: Bool, hardError: String?, newUnlockCount: Int) -> Bool {
+        sendNotifications && hardError == nil && newUnlockCount > 0
     }
 
     /// A concise, user-facing note about skipped files, surfaced through the

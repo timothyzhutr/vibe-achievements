@@ -48,4 +48,20 @@ final class CodexParserTests: XCTestCase {
         let parsed = try CodexParser.parse(fileURL: url)
         XCTAssertEqual(parsed.thread.rawTokenCount, 250)
     }
+
+    func testPlaintextContentSurvivesEncryptedContentMetadata() throws {
+        let lines = [
+            #"{"type":"session_meta","timestamp":"2026-07-04T02:00:00.000Z","payload":{"id":"s","cwd":"/tmp/p"}}"#,
+            #"{"type":"response_item","timestamp":"2026-07-04T02:00:01.000Z","payload":{"type":"message","role":"user","encrypted_content":null,"content":[{"type":"input_text","text":"plain null content"}]}}"#,
+            #"{"type":"response_item","timestamp":"2026-07-04T02:00:02.000Z","payload":{"type":"message","role":"assistant","encrypted_content":"metadata","content":[{"type":"output_text","text":"plain metadata content"}]}}"#,
+            #"{"type":"response_item","timestamp":"2026-07-04T02:00:03.000Z","payload":{"type":"message","role":"assistant","encrypted_content":"metadata"}}"#
+        ].joined(separator: "\n")
+        let url = URL(fileURLWithPath: NSTemporaryDirectory() + UUID().uuidString + ".jsonl")
+        try lines.write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let parsed = try CodexParser.parse(fileURL: url)
+
+        XCTAssertEqual(parsed.messages.map(\.text), ["plain null content", "plain metadata content"])
+    }
 }

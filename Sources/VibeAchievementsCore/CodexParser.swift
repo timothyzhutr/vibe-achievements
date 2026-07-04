@@ -41,12 +41,14 @@ public enum CodexParser {
             }
 
             guard type == "response_item",
-                  payload["type"] as? String == "message",
-                  payload["encrypted_content"] == nil
+                  payload["type"] as? String == "message"
             else { continue }
 
             let role = parseRole(payload["role"] as? String ?? "unknown")
             let content = TextContent.extract(from: payload["content"])
+            if payload["encrypted_content"] != nil, content.isEmpty {
+                continue
+            }
             messages.append(NormalizedMessage(
                 id: "\(threadID)-\(index)",
                 threadID: threadID,

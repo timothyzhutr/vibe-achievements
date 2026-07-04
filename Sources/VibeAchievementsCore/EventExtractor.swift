@@ -33,6 +33,9 @@ public enum EventExtractor {
         for message in parsed.messages {
             let lowered = message.text.lowercased()
             let isUserTurn = message.role == .user
+            let isConversationTurn = isUserTurn || message.role == .assistant
+            guard isConversationTurn else { continue }
+
             if isUserTurn { userTurnCount += 1 }
             if message.charCount >= 2_000 {
                 events.append(messageEvent(.longMessageSeen, parsed: parsed, message: message, confidence: "high"))
@@ -50,7 +53,7 @@ public enum EventExtractor {
             if containsAny(lowered, ["implement", "implemented", "build", "built", "fix", "fixed", "patch", "code", "scaffold", "create files"]) {
                 events.append(messageEvent(.implementationOrFixSeen, parsed: parsed, message: message, confidence: "high"))
             }
-            if containsAny(lowered, ["rm -rf", "delete node_modules", "wipe", "nuke", "start over", "clean slate"]) {
+            if mentionsDestructiveCleanup(lowered) {
                 events.append(messageEvent(.destructiveCleanupSeen, parsed: parsed, message: message, confidence: "high"))
             }
             if containsAny(lowered, ["reinstall", "rebuild", "regenerate", "restore"]) {
@@ -66,6 +69,22 @@ public enum EventExtractor {
 
     private static func containsAny(_ text: String, _ needles: [String]) -> Bool {
         needles.contains { text.contains($0) }
+    }
+
+    private static let destructiveCleanupTerms = ["rm -rf", "delete node_modules", "wipe", "nuke", "start over", "clean slate"]
+
+    private static func mentionsDestructiveCleanup(_ text: String) -> Bool {
+        for term in destructiveCleanupTerms {
+            var searchStart = text.startIndex
+            while let range = text.range(of: term, range: searchStart..<text.endIndex) {
+                searchStart = range.upperBound
+                let windowStart = text.index(range.lowerBound, offsetBy: -32, limitedBy: text.startIndex) ?? text.startIndex
+                let preceding = " " + text[windowStart..<range.lowerBound] + " "
+                let warned = [" do not ", " don't ", " dont ", " never ", " avoid ", " warning ", " no "].contains { preceding.contains($0) }
+                if !warned { return true }
+            }
+        }
+        return false
     }
 
     private static let successTerms = ["it works", "works now", "fixed", "passing", "solved"]
