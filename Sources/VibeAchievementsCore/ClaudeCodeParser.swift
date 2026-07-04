@@ -1,15 +1,20 @@
 import Foundation
 
 public enum ClaudeCodeParser {
+    private static let iso8601Formatter = SharedISO8601DateFormatter()
+
     public static func parse(fileURL: URL) throws -> ParsedTranscript {
         let data = try Data(contentsOf: fileURL)
         let text = String(decoding: data, as: UTF8.self)
         var messages: [NormalizedMessage] = []
-        var sessionID = fileURL.deletingPathExtension().lastPathComponent
+        var messageLineIndexes: [Int] = []
+        let fallbackSessionID = fileURL.deletingPathExtension().lastPathComponent
+        var lockedSessionID: String?
         var cwd: String?
         var createdAt: Date?
         var updatedAt: Date?
         var rawTokens = 0
+        var sawUsage = false
 
         for (index, line) in text.split(separator: "\n").enumerated() {
             guard let lineData = String(line).data(using: .utf8),
@@ -18,7 +23,14 @@ public enum ClaudeCodeParser {
                   type == "user" || type == "assistant"
             else { continue }
 
-            sessionID = object["sessionId"] as? String ?? sessionID
+            let entrySessionID = object["sessionId"] as? String
+            if let entrySessionID, !entrySessionID.isEmpty {
+                if let lockedSessionID, lockedSessionID != entrySessionID {
+                    continue
+                }
+                lockedSessionID = entrySessionID
+            }
+
             cwd = object["cwd"] as? String ?? cwd
             let timestamp = parseISODate(object["timestamp"] as? String)
             createdAt = minDate(createdAt, timestamp)
@@ -29,15 +41,17 @@ public enum ClaudeCodeParser {
             let content = TextContent.extract(from: messageObject?["content"])
 
             if let usage = messageObject?["usage"] as? [String: Any] {
+                sawUsage = true
                 rawTokens += usage["input_tokens"] as? Int ?? 0
                 rawTokens += usage["output_tokens"] as? Int ?? 0
                 rawTokens += usage["cache_read_input_tokens"] as? Int ?? 0
                 rawTokens += usage["cache_creation_input_tokens"] as? Int ?? 0
             }
 
+            let currentSessionID = lockedSessionID ?? fallbackSessionID
             messages.append(NormalizedMessage(
-                id: "\(sessionID)-\(index)",
-                threadID: sessionID,
+                id: "\(currentSessionID)-\(index)",
+                threadID: currentSessionID,
                 sourceTool: .claudeCode,
                 sourceMessageID: object["uuid"] as? String,
                 role: role,
@@ -45,6 +59,13 @@ public enum ClaudeCodeParser {
                 text: content,
                 rawType: type
             ))
+            messageLineIndexes.append(index)
+        }
+
+        let sessionID = lockedSessionID ?? fallbackSessionID
+        for index in messages.indices {
+            messages[index].id = "\(sessionID)-\(messageLineIndexes[index])"
+            messages[index].threadID = sessionID
         }
 
         let estimatedTokens = messages.reduce(0) { $0 + $1.estimatedTokens }
@@ -62,30 +83,62 @@ public enum ClaudeCodeParser {
             userTurnCount: messages.filter { $0.role == .user }.count,
             assistantTurnCount: messages.filter { $0.role == .assistant }.count,
             estimatedTokens: estimatedTokens,
-            rawTokenCount: rawTokens == 0 ? nil : rawTokens
+            rawTokenCount: sawUsage ? rawTokens : nil
         )
 
         return ParsedTranscript(thread: thread, messages: messages)
     }
-}
 
-func parseISODate(_ value: String?) -> Date? {
-    guard let value else { return nil }
-    return ISO8601DateFormatter().date(from: value)
-}
+    private static func parseISODate(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        return iso8601Formatter.date(from: value)
+    }
 
-func parseRole(_ value: String) -> MessageRole {
-    MessageRole(rawValue: value) ?? .unknown
-}
+    private static func parseRole(_ value: String) -> MessageRole {
+        MessageRole(rawValue: value) ?? .unknown
+    }
 
-func minDate(_ lhs: Date?, _ rhs: Date?) -> Date? {
-    guard let rhs else { return lhs }
-    guard let lhs else { return rhs }
-    return min(lhs, rhs)
-}
+    private static func minDate(_ lhs: Date?, _ rhs: Date?) -> Date? {
+        guard let rhs else { return lhs }
+        guard let lhs else { return rhs }
+        return min(lhs, rhs)
+    }
 
-func maxDate(_ lhs: Date?, _ rhs: Date?) -> Date? {
-    guard let rhs else { return lhs }
-    guard let lhs else { return rhs }
-    return max(lhs, rhs)
+    private static func maxDate(_ lhs: Date?, _ rhs: Date?) -> Date? {
+        guard let rhs else { return lhs }
+        guard let lhs else { return rhs }
+        return max(lhs, rhs)
+    }
+
+    private final class SharedISO8601DateFormatter: @unchecked Sendable {
+        private let lock = NSLock()
+        private let formatter: ISO8601DateFormatter = {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            return formatter
+        }()
+
+        func date(from value: String) -> Date? {
+            lock.lock()
+            defer { lock.unlock() }
+            return formatter.date(from: value)
+        }
+    }
+
+    private enum TextContent {
+        static func extract(from value: Any?) -> String {
+            if let string = value as? String {
+                return string
+            }
+            if let array = value as? [Any] {
+                return array.compactMap { item in
+                    guard let object = item as? [String: Any],
+                          object["type"] as? String == "text"
+                    else { return nil }
+                    return object["text"] as? String
+                }.joined(separator: "\n")
+            }
+            return ""
+        }
+    }
 }
