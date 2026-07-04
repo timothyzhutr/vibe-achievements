@@ -87,10 +87,10 @@ Runs as a menu-bar **accessory** app (no Dock icon). Use the **Vibe** menu bar
 item to open the achievement shelf, trigger a manual **Scan Now**, open Settings,
 or quit.
 
-> Note: notifications require a real app bundle identifier. When launched via
-> `swift run`, the menu bar UI and indexing work, but notification delivery is
-> unreliable until the executable is wrapped in a proper `.app` bundle (see
-> [Roadmap](#roadmap)).
+> Note: notifications require a real app bundle identifier, so they are
+> disabled when launched via `swift run` (the menu bar UI and indexing still
+> work). Use the packaged app for the full experience — see
+> [Packaging](#packaging-app--dmg).
 
 ### CLI (headless indexer)
 
@@ -108,6 +108,22 @@ swift run vibe-achievements-cli \
 ```
 
 Unlocks are printed to stdout; skipped/unreadable files are reported to stderr.
+
+## Packaging (.app / .dmg)
+
+```bash
+Scripts/make-app.sh   # release build → dist/VibeAchievements.app (ad-hoc signed)
+Scripts/make-dmg.sh   # the above + dist/VibeAchievements-<version>.dmg
+```
+
+The `.app` bundle is what gives the app a real bundle identifier, which is
+required for native notifications. The `.dmg` is the standard drag-to-install
+disk image for handing the app to another Mac.
+
+The build is **ad-hoc signed** — fine for your own machine. On another Mac,
+right-click the app and choose *Open* to get past Gatekeeper. Public
+distribution without warnings would additionally need an Apple Developer ID
+signature and notarization ($99/yr Apple Developer Program).
 
 ## Project layout
 
@@ -156,7 +172,8 @@ so the app can load it without a docs dependency; a test
   `rm_rf`, and `it_works_therefore_it_is`).
 - Enforce time-windowed cooldowns (e.g. `once_per_project_per_7_days` is
   currently treated as once-per-project).
-- Package a signed/notarized `.app` bundle and a `.dmg` for distribution.
+- Developer ID signing + notarization for public distribution (local `.app`/
+  `.dmg` packaging already works — see [Packaging](#packaging-app--dmg)).
 - Cross-tool achievements (same project across Claude + Codex).
 
 ## Design docs
