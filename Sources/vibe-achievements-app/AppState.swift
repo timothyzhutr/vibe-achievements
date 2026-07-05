@@ -87,7 +87,7 @@ private struct ScanResult: Sendable {
 }
 
 extension AppState {
-    nonisolated static let detectorFingerprintVersion = "detectors-v2"
+    nonisolated static let detectorFingerprintVersion = "detectors-v3"
 
     nonisolated private static func performScan(storePath: String, notify: Bool) async -> ScanResult {
         let locations = SourceDiscovery.discover()
