@@ -17,7 +17,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Open Achievements", action: #selector(openAchievements), keyEquivalent: "a"))
-        menu.addItem(NSMenuItem(title: "Scan Now", action: #selector(scanNow), keyEquivalent: "r"))
         menu.addItem(NSMenuItem(title: "Settings", action: #selector(openSettings), keyEquivalent: ","))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -25,12 +24,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         NotificationController.requestAuthorization { [weak self] in
             Task { @MainActor in
-                self?.appState.scanNow(sendNotifications: true)
+                self?.appState.notificationsBecameAvailable()
             }
         }
         scanTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.appState.scanNow(sendNotifications: true)
+                self?.appState.scanNow()
             }
         }
     }
@@ -46,10 +45,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         NSApp.activate(ignoringOtherApps: true)
         shelfWindow?.makeKeyAndOrderFront(nil)
-    }
-
-    @objc private func scanNow() {
-        appState.scanNow(sendNotifications: true)
     }
 
     @objc private func openSettings() {

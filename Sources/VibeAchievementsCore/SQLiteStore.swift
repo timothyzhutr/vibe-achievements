@@ -90,6 +90,42 @@ public final class SQLiteStore {
         return unlocks
     }
 
+    /// Unlocks that have been recorded but never notified, oldest first. Every
+    /// achievement gets exactly one banner: an unlock stays here until a scan
+    /// with notification permission notifies it and calls `markNotified`.
+    public func unnotifiedUnlocks() throws -> [AchievementUnlock] {
+        let sql = """
+        SELECT achievement_id, name, project_key, thread_id, unlocked_at, trigger_summary
+        FROM achievement_unlocks
+        WHERE notified_at = ''
+        ORDER BY unlocked_at ASC, rowid ASC;
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { throw StoreError.prepareFailed }
+        defer { sqlite3_finalize(statement) }
+
+        var unlocks: [AchievementUnlock] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            unlocks.append(AchievementUnlock(
+                achievementID: columnString(statement, 0),
+                name: columnString(statement, 1),
+                projectKey: columnString(statement, 2).isEmpty ? nil : columnString(statement, 2),
+                threadID: columnString(statement, 3).isEmpty ? nil : columnString(statement, 3),
+                unlockedAt: parseISO(columnString(statement, 4)) ?? .distantPast,
+                triggerSummary: columnString(statement, 5)
+            ))
+        }
+        return unlocks
+    }
+
+    public func markNotified(_ achievementIDs: [String], at date: Date = Date()) throws {
+        guard !achievementIDs.isEmpty else { return }
+        let stamp = iso(date)
+        for id in achievementIDs {
+            try execute("UPDATE achievement_unlocks SET notified_at = ? WHERE achievement_id = ?;", [stamp, id])
+        }
+    }
+
     /// Persisted per-file fingerprints (path -> fingerprint) so that only new or
     /// changed transcripts are re-parsed across app launches.
     public func knownFileFingerprints() throws -> [String: String] {
@@ -180,7 +216,8 @@ public final class SQLiteStore {
             project_key TEXT NOT NULL,
             thread_id TEXT NOT NULL,
             unlocked_at TEXT NOT NULL,
-            trigger_summary TEXT NOT NULL
+            trigger_summary TEXT NOT NULL,
+            notified_at TEXT NOT NULL DEFAULT ''
         );
         """, [])
         try execute("""
@@ -189,6 +226,13 @@ public final class SQLiteStore {
             fingerprint TEXT NOT NULL
         );
         """, [])
+
+        // Additive: databases created before per-unlock notification tracking
+        // lack notified_at. Their existing unlocks default to unnotified and get
+        // a one-time banner on the next authorized scan.
+        if try !columnNames(of: "achievement_unlocks").contains("notified_at") {
+            try execute("ALTER TABLE achievement_unlocks ADD COLUMN notified_at TEXT NOT NULL DEFAULT '';", [])
+        }
     }
 
     private func execute(_ sql: String, _ values: [Any]) throws {

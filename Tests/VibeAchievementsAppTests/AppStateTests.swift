@@ -3,14 +3,6 @@ import XCTest
 import VibeAchievementsCore
 
 final class AppStateTests: XCTestCase {
-    func testWarningsDoNotSuppressNotificationsButHardErrorsDo() {
-        // Soft warnings surface via `error`, not `hardError`, so they must not
-        // block notifications; a hard failure or sendNotifications:false does.
-        XCTAssertTrue(AppState.notificationsAllowed(sendNotifications: true, hardError: nil))
-        XCTAssertFalse(AppState.notificationsAllowed(sendNotifications: true, hardError: "Scan failed"))
-        XCTAssertFalse(AppState.notificationsAllowed(sendNotifications: false, hardError: nil))
-    }
-
     func testFailedParseFilesAreNotFingerprintRecorded() {
         let warnings = [IndexWarning(path: "/tmp/bad.jsonl", message: "bad json")]
 
