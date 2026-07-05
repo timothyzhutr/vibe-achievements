@@ -12,16 +12,41 @@ public struct SourceLocations: Equatable, Sendable {
     }
 }
 
+public struct SourceConfiguration: Equatable, Sendable {
+    public var claudeEnabled: Bool
+    public var codexEnabled: Bool
+    public var claudeProjectsOverride: URL?
+    public var codexHomeOverride: URL?
+
+    public init(
+        claudeEnabled: Bool = true,
+        codexEnabled: Bool = true,
+        claudeProjectsOverride: URL? = nil,
+        codexHomeOverride: URL? = nil
+    ) {
+        self.claudeEnabled = claudeEnabled
+        self.codexEnabled = codexEnabled
+        self.claudeProjectsOverride = claudeProjectsOverride
+        self.codexHomeOverride = codexHomeOverride
+    }
+}
+
 public enum SourceDiscovery {
-    public static func discover(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> SourceLocations {
-        let claude = home.appendingPathComponent(".claude/projects")
-        let codexHome = ProcessInfo.processInfo.environment["CODEX_HOME"].map(URL.init(fileURLWithPath:)) ?? home.appendingPathComponent(".codex")
+    public static func discover(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        configuration: SourceConfiguration = SourceConfiguration(),
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> SourceLocations {
+        let claude = configuration.claudeProjectsOverride ?? home.appendingPathComponent(".claude/projects")
+        let codexHome = configuration.codexHomeOverride
+            ?? environment["CODEX_HOME"].map(URL.init(fileURLWithPath:))
+            ?? home.appendingPathComponent(".codex")
         let sessions = codexHome.appendingPathComponent("sessions")
         let archived = codexHome.appendingPathComponent("archived_sessions")
         return SourceLocations(
-            claudeProjects: exists(claude) ? claude : nil,
-            codexSessions: exists(sessions) ? sessions : nil,
-            codexArchivedSessions: exists(archived) ? archived : nil
+            claudeProjects: configuration.claudeEnabled && exists(claude) ? claude : nil,
+            codexSessions: configuration.codexEnabled && exists(sessions) ? sessions : nil,
+            codexArchivedSessions: configuration.codexEnabled && exists(archived) ? archived : nil
         )
     }
 

@@ -15,7 +15,8 @@ on your machine.
 
 ## What it does
 
-- Auto-detects local Claude Code and Codex transcript folders.
+- Auto-detects local Claude Code and Codex transcript folders, with Settings
+  controls for correcting or disabling each source.
 - Parses transcripts defensively (malformed lines/files are skipped, never fatal).
 - Normalizes everything into a small local SQLite database.
 - Extracts lightweight events (corrections, stack traces, destructive cleanup,
@@ -63,6 +64,20 @@ thread; the UI never blocks on a scan.
 
 Source stores are read **read-only**; the app never modifies your history.
 
+### Source settings
+
+Open **Settings** from the menu bar item to control watched sources:
+
+- Toggle `Claude Code` or `Codex` scanning on or off.
+- Use **Choose...** to point Claude Code at a projects folder, such as
+  `~/.claude/projects`.
+- Use **Choose...** to point Codex at its home folder, such as `~/.codex`; the
+  app derives `sessions` and `archived_sessions` below that folder.
+- Use **Reset** to return a source to auto-detection.
+
+Settings are stored locally in `UserDefaults` and trigger a quiet rescan after
+changes.
+
 ## Requirements
 
 - macOS 14 or later
@@ -85,7 +100,8 @@ swift run vibe-achievements-app
 
 Runs as a menu-bar **accessory** app (no Dock icon). Use the **Vibe** menu bar
 item to open the achievement shelf, trigger a manual **Scan Now**, open Settings,
-or quit.
+or quit. Settings lets you enable/disable Claude Code and Codex sources, choose
+manual source folders, and reset back to auto-detection.
 
 > Note: notifications require a real app bundle identifier, so they are
 > disabled when launched via `swift run` (the menu bar UI and indexing still
@@ -145,6 +161,7 @@ Sources/
       achievement-trigger-contracts-v1.jsonl   # bundled contracts
   vibe-achievements-cli/        # headless indexer
   vibe-achievements-app/        # SwiftUI + AppKit menu bar app
+    AppSourceSettings.swift     # persisted Claude/Codex source settings
 Tests/VibeAchievementsCoreTests/
 docs/                           # design spec, plan, achievement list
 ```

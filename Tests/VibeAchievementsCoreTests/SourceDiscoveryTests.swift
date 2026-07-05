@@ -31,4 +31,62 @@ final class SourceDiscoveryTests: XCTestCase {
             archiveFile.resolvingSymlinksInPath().path
         ]))
     }
+
+    func testSourceConfigurationCanDisableClaudeOrCodex() throws {
+        let root = try makeRoot()
+        let claude = root.appendingPathComponent(".claude/projects", isDirectory: true)
+        let codexSessions = root.appendingPathComponent(".codex/sessions", isDirectory: true)
+        let codexArchive = root.appendingPathComponent(".codex/archived_sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: claude, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: codexSessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: codexArchive, withIntermediateDirectories: true)
+
+        let withoutClaude = SourceDiscovery.discover(
+            home: root,
+            configuration: SourceConfiguration(claudeEnabled: false, codexEnabled: true)
+        )
+        XCTAssertNil(withoutClaude.claudeProjects)
+        XCTAssertEqual(withoutClaude.codexSessions, codexSessions)
+        XCTAssertEqual(withoutClaude.codexArchivedSessions, codexArchive)
+
+        let withoutCodex = SourceDiscovery.discover(
+            home: root,
+            configuration: SourceConfiguration(claudeEnabled: true, codexEnabled: false)
+        )
+        XCTAssertEqual(withoutCodex.claudeProjects, claude)
+        XCTAssertNil(withoutCodex.codexSessions)
+        XCTAssertNil(withoutCodex.codexArchivedSessions)
+    }
+
+    func testSourceConfigurationUsesManualDirectories() throws {
+        let root = try makeRoot()
+        let claudeOverride = root.appendingPathComponent("custom-claude", isDirectory: true)
+        let codexOverride = root.appendingPathComponent("custom-codex", isDirectory: true)
+        let codexSessions = codexOverride.appendingPathComponent("sessions", isDirectory: true)
+        let codexArchive = codexOverride.appendingPathComponent("archived_sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: claudeOverride, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: codexSessions, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: codexArchive, withIntermediateDirectories: true)
+
+        let locations = SourceDiscovery.discover(
+            home: root,
+            configuration: SourceConfiguration(
+                claudeEnabled: true,
+                codexEnabled: true,
+                claudeProjectsOverride: claudeOverride,
+                codexHomeOverride: codexOverride
+            )
+        )
+
+        XCTAssertEqual(locations.claudeProjects, claudeOverride)
+        XCTAssertEqual(locations.codexSessions, codexSessions)
+        XCTAssertEqual(locations.codexArchivedSessions, codexArchive)
+    }
+
+    private func makeRoot() throws -> URL {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
 }

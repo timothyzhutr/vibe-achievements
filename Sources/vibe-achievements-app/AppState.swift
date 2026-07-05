@@ -9,8 +9,10 @@ final class AppState: ObservableObject {
     @Published var achievementContracts: [AchievementContract] = []
     @Published var lastScanSummary: String = "No scan yet"
     @Published var lastError: String?
+    @Published var sourceSettings: AppSourceSettings
 
     private let storePath: String
+    private let sourceSettingsDefaults: UserDefaults
     private var isScanning = false
     private var pendingScan = false
     /// Set once the notification-permission prompt has been answered. Scans
@@ -18,8 +20,10 @@ final class AppState: ObservableObject {
     /// is dropped by the OS, and the unlock would be marked notified, losing it.
     private var notificationsReady = false
 
-    init(storePath: String = AppState.defaultStorePath()) {
+    init(storePath: String = AppState.defaultStorePath(), sourceSettingsDefaults: UserDefaults = .standard) {
         self.storePath = storePath
+        self.sourceSettingsDefaults = sourceSettingsDefaults
+        self.sourceSettings = AppSourceSettings.load(from: sourceSettingsDefaults)
     }
 
     /// Called once the notification-permission prompt is answered. Enables
@@ -36,15 +40,16 @@ final class AppState: ObservableObject {
     func scanNow() {
         guard !isScanning else {
             // Don't drop a scan behind an in-flight one — the post-permission
-            // scan may arrive during an earlier (non-notifying) scan.
+            // scan, or a source-settings change, may arrive during an earlier scan.
             pendingScan = true
             return
         }
         isScanning = true
         let storePath = self.storePath
+        let sourceConfiguration = sourceSettings.discoveryConfiguration
         let notify = notificationsReady
         Task {
-            let result = await Self.performScan(storePath: storePath, notify: notify)
+            let result = await Self.performScan(storePath: storePath, sourceConfiguration: sourceConfiguration, notify: notify)
             self.apply(result)
             self.isScanning = false
             if self.pendingScan {
@@ -52,6 +57,16 @@ final class AppState: ObservableObject {
                 self.scanNow()
             }
         }
+    }
+
+    /// Applies an edit to the watched-source settings, persists it, and rescans
+    /// so the shelf reflects the new sources immediately.
+    func updateSourceSettings(_ update: (inout AppSourceSettings) -> Void) {
+        var copy = sourceSettings
+        update(&copy)
+        sourceSettings = copy
+        copy.save(to: sourceSettingsDefaults)
+        scanNow()
     }
 
     private func apply(_ result: ScanResult) {
@@ -81,16 +96,14 @@ private struct ScanResult: Sendable {
     var lastScanSummary: String
     var achievementContracts: [AchievementContract]
     var recentUnlocks: [AchievementUnlock]?
-    var newUnlocks: [AchievementUnlock]
     var error: String?
-    var hardError: String?
 }
 
 extension AppState {
     nonisolated static let detectorFingerprintVersion = "detectors-v3"
 
-    nonisolated private static func performScan(storePath: String, notify: Bool) async -> ScanResult {
-        let locations = SourceDiscovery.discover()
+    nonisolated private static func performScan(storePath: String, sourceConfiguration: SourceConfiguration, notify: Bool) async -> ScanResult {
+        let locations = SourceDiscovery.discover(configuration: sourceConfiguration)
         var parts: [String] = []
         if locations.claudeProjects != nil { parts.append("Claude Code") }
         if locations.codexSessions != nil || locations.codexArchivedSessions != nil { parts.append("Codex") }
@@ -118,11 +131,11 @@ extension AppState {
                 }
             }
 
-            var newUnlocks: [AchievementUnlock] = []
+            var newUnlockCount = 0
             var warnings: [IndexWarning] = []
             if !changed.isEmpty {
                 let result = try Indexer.index(paths: changed.map(\.url), contracts: contracts, store: store)
-                newUnlocks = result.unlocks
+                newUnlockCount = result.unlocks.count
                 warnings = result.warnings
                 // Record fingerprints even for files that produced no unlocks so
                 // they are not re-parsed until they actually change again. Files
@@ -154,12 +167,10 @@ extension AppState {
             let recent = try store.allUnlocks()
             return ScanResult(
                 sourceSummary: sourceSummary,
-                lastScanSummary: scanSummary(changedFileCount: changed.count, newUnlockCount: newUnlocks.count),
+                lastScanSummary: scanSummary(changedFileCount: changed.count, newUnlockCount: newUnlockCount),
                 achievementContracts: contracts,
                 recentUnlocks: recent,
-                newUnlocks: newUnlocks,
-                error: warningSummary(for: warnings),
-                hardError: nil
+                error: warningSummary(for: warnings)
             )
         } catch {
             let message = String(describing: error)
@@ -168,9 +179,7 @@ extension AppState {
                 lastScanSummary: "Scan failed",
                 achievementContracts: [],
                 recentUnlocks: nil,
-                newUnlocks: [],
-                error: message,
-                hardError: message
+                error: message
             )
         }
     }
