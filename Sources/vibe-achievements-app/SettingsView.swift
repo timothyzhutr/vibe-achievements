@@ -14,12 +14,9 @@ struct SettingsView: View {
                 Text(lastError)
                     .foregroundStyle(.red)
             }
-            Button("Scan Now") {
-                state.scanNow(sendNotifications: true)
-            }
         }
         .padding()
         .frame(width: 460)
-        .onAppear { state.refresh(sendNotifications: false) }
+        .onAppear { state.scanNow() }
     }
 }

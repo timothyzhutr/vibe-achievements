@@ -12,50 +12,55 @@ final class AppState: ObservableObject {
 
     private let storePath: String
     private var isScanning = false
+    private var pendingScan = false
+    /// Set once the notification-permission prompt has been answered. Scans
+    /// before this index but do not notify — a banner posted without permission
+    /// is dropped by the OS, and the unlock would be marked notified, losing it.
+    private var notificationsReady = false
 
     init(storePath: String = AppState.defaultStorePath()) {
         self.storePath = storePath
     }
 
-    func refresh(sendNotifications: Bool = false) {
-        scanNow(sendNotifications: sendNotifications)
+    /// Called once the notification-permission prompt is answered. Enables
+    /// notifications and runs the first authorized scan, which posts a banner for
+    /// every not-yet-notified achievement (including the initial backfill).
+    func notificationsBecameAvailable() {
+        notificationsReady = true
+        scanNow()
     }
 
-    /// Kicks off a scan without blocking the main thread. The heavy work
-    /// (filesystem enumeration, parsing, SQLite writes) runs off the main actor;
-    /// only the published-state update and notifications run back on main.
-    func scanNow(sendNotifications: Bool = true) {
-        guard !isScanning else { return }
+    /// Kicks off a scan without blocking the main thread. Enumeration, parsing,
+    /// SQLite writes, and posting notifications all run off the main actor; only
+    /// the published-state update runs back on main.
+    func scanNow() {
+        guard !isScanning else {
+            // Don't drop a scan behind an in-flight one — the post-permission
+            // scan may arrive during an earlier (non-notifying) scan.
+            pendingScan = true
+            return
+        }
         isScanning = true
         let storePath = self.storePath
+        let notify = notificationsReady
         Task {
-            let result = await Self.performScan(storePath: storePath)
-            self.apply(result, sendNotifications: sendNotifications)
+            let result = await Self.performScan(storePath: storePath, notify: notify)
+            self.apply(result)
             self.isScanning = false
+            if self.pendingScan {
+                self.pendingScan = false
+                self.scanNow()
+            }
         }
     }
 
-    private func apply(_ result: ScanResult, sendNotifications: Bool) {
+    private func apply(_ result: ScanResult) {
         sourceSummary = result.sourceSummary
         lastScanSummary = result.lastScanSummary
         lastError = result.error
         achievementContracts = result.achievementContracts
         if let recent = result.recentUnlocks {
             recentUnlocks = recent
-        }
-
-        guard Self.shouldSendUnlockNotifications(sendNotifications: sendNotifications, hardError: result.hardError, newUnlockCount: result.newUnlocks.count) else { return }
-        if result.wasBackfill {
-            // First index of existing history: one summary instead of a burst.
-            let count = result.newUnlocks.count
-            NotificationController.notify(
-                unlockName: "Achievements unlocked",
-                summary: "Found \(count) achievement\(count == 1 ? "" : "s") in your coding history."
-            )
-        } else {
-            for unlock in result.newUnlocks {
-                NotificationController.notify(unlockName: unlock.name, summary: unlock.triggerSummary)
-            }
         }
     }
 
@@ -77,15 +82,14 @@ private struct ScanResult: Sendable {
     var achievementContracts: [AchievementContract]
     var recentUnlocks: [AchievementUnlock]?
     var newUnlocks: [AchievementUnlock]
-    var wasBackfill: Bool
     var error: String?
     var hardError: String?
 }
 
 extension AppState {
-    nonisolated static let detectorFingerprintVersion = "detectors-v2"
+    nonisolated static let detectorFingerprintVersion = "detectors-v3"
 
-    nonisolated private static func performScan(storePath: String) async -> ScanResult {
+    nonisolated private static func performScan(storePath: String, notify: Bool) async -> ScanResult {
         let locations = SourceDiscovery.discover()
         var parts: [String] = []
         if locations.claudeProjects != nil { parts.append("Claude Code") }
@@ -105,9 +109,6 @@ extension AppState {
             let store = try SQLiteStore(path: storePath)
             let contracts = try AchievementContractLoader.loadBundledV1()
             let knownFingerprints = try store.knownFileFingerprints()
-            // A store with no recorded fingerprints is a fresh install: its first
-            // productive scan is a historical backfill, which must not spam.
-            let wasBackfill = knownFingerprints.isEmpty
 
             var changed: [(url: URL, fingerprint: String)] = []
             for path in transcriptPaths {
@@ -133,6 +134,23 @@ extension AppState {
                 }
             }
 
+            // One banner per achievement, exactly once. Every unlock not yet
+            // notified gets a banner here (oldest first), then is marked so it is
+            // never notified again — across scans or app restarts.
+            if notify {
+                let pending = try store.unnotifiedUnlocks()
+                if shouldMarkNotificationsDelivered(
+                    notify: notify,
+                    notificationsAvailable: NotificationController.notificationsAvailable,
+                    pendingCount: pending.count
+                ) {
+                    for unlock in pending {
+                        NotificationController.notify(unlockName: unlock.name, summary: unlock.triggerSummary)
+                    }
+                    try store.markNotified(pending.map(\.achievementID))
+                }
+            }
+
             let recent = try store.allUnlocks()
             return ScanResult(
                 sourceSummary: sourceSummary,
@@ -140,7 +158,6 @@ extension AppState {
                 achievementContracts: contracts,
                 recentUnlocks: recent,
                 newUnlocks: newUnlocks,
-                wasBackfill: wasBackfill,
                 error: warningSummary(for: warnings),
                 hardError: nil
             )
@@ -152,7 +169,6 @@ extension AppState {
                 achievementContracts: [],
                 recentUnlocks: nil,
                 newUnlocks: [],
-                wasBackfill: false,
                 error: message,
                 hardError: message
             )
@@ -171,8 +187,8 @@ extension AppState {
         !warnings.contains { $0.path == path }
     }
 
-    nonisolated static func shouldSendUnlockNotifications(sendNotifications: Bool, hardError: String?, newUnlockCount: Int) -> Bool {
-        sendNotifications && hardError == nil && newUnlockCount > 0
+    nonisolated static func shouldMarkNotificationsDelivered(notify: Bool, notificationsAvailable: Bool, pendingCount: Int) -> Bool {
+        notify && notificationsAvailable && pendingCount > 0
     }
 
     /// A concise, user-facing note about skipped files, surfaced through the

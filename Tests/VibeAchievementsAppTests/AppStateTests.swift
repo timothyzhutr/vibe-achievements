@@ -3,13 +3,6 @@ import XCTest
 import VibeAchievementsCore
 
 final class AppStateTests: XCTestCase {
-    func testWarningsDoNotSuppressUnlockNotifications() {
-        XCTAssertTrue(AppState.shouldSendUnlockNotifications(sendNotifications: true, hardError: nil, newUnlockCount: 1))
-        XCTAssertFalse(AppState.shouldSendUnlockNotifications(sendNotifications: true, hardError: "Scan failed", newUnlockCount: 1))
-        XCTAssertFalse(AppState.shouldSendUnlockNotifications(sendNotifications: true, hardError: nil, newUnlockCount: 0))
-        XCTAssertFalse(AppState.shouldSendUnlockNotifications(sendNotifications: false, hardError: nil, newUnlockCount: 1))
-    }
-
     func testFailedParseFilesAreNotFingerprintRecorded() {
         let warnings = [IndexWarning(path: "/tmp/bad.jsonl", message: "bad json")]
 
@@ -23,5 +16,12 @@ final class AppStateTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         XCTAssertTrue(AppState.fingerprint(for: url).hasPrefix(AppState.detectorFingerprintVersion + "-"))
+    }
+
+    func testNotificationStateIsMarkedOnlyWhenNotificationsCanSchedule() {
+        XCTAssertFalse(AppState.shouldMarkNotificationsDelivered(notify: false, notificationsAvailable: true, pendingCount: 1))
+        XCTAssertFalse(AppState.shouldMarkNotificationsDelivered(notify: true, notificationsAvailable: false, pendingCount: 1))
+        XCTAssertFalse(AppState.shouldMarkNotificationsDelivered(notify: true, notificationsAvailable: true, pendingCount: 0))
+        XCTAssertTrue(AppState.shouldMarkNotificationsDelivered(notify: true, notificationsAvailable: true, pendingCount: 1))
     }
 }

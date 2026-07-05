@@ -88,7 +88,6 @@ final class SQLiteStoreTests: XCTestCase {
             name: "Actually, Wait",
             projectKey: "/tmp/a",
             threadID: "thread-a",
-            scopeKey: "thread-a",
             unlockedAt: Date(timeIntervalSince1970: 100),
             triggerSummary: "Changed direction."
         ))
@@ -97,14 +96,42 @@ final class SQLiteStoreTests: XCTestCase {
             name: "Actually, Wait",
             projectKey: "/tmp/b",
             threadID: "thread-b",
-            scopeKey: "thread-b",
             unlockedAt: Date(timeIntervalSince1970: 200),
             triggerSummary: "Changed direction again."
         ))
 
         XCTAssertEqual(try store.unlockCount(), 1)
         XCTAssertEqual(try store.allUnlocks().map(\.achievementID), ["actually_wait"])
-        XCTAssertTrue(try store.existingUnlockKeys().contains("actually_wait"))
+        XCTAssertTrue(try store.unlockedAchievementIDs().contains("actually_wait"))
+    }
+
+    func testUnnotifiedUnlocksTrackPerAchievementNotificationState() throws {
+        let path = NSTemporaryDirectory() + UUID().uuidString + ".sqlite"
+        let store = try SQLiteStore(path: path)
+
+        try store.insert(unlock: AchievementUnlock(achievementID: "a", name: "A", projectKey: nil, threadID: nil, unlockedAt: Date(timeIntervalSince1970: 100), triggerSummary: "first"))
+        try store.insert(unlock: AchievementUnlock(achievementID: "b", name: "B", projectKey: nil, threadID: nil, unlockedAt: Date(timeIntervalSince1970: 200), triggerSummary: "second"))
+
+        // Everything starts unnotified, oldest first.
+        XCTAssertEqual(try store.unnotifiedUnlocks().map(\.achievementID), ["a", "b"])
+
+        try store.markNotified(["a"])
+        XCTAssertEqual(try store.unnotifiedUnlocks().map(\.achievementID), ["b"])
+
+        try store.markNotified(["b"])
+        XCTAssertTrue(try store.unnotifiedUnlocks().isEmpty)
+    }
+
+    func testNotificationStateSurvivesReopen() throws {
+        let path = NSTemporaryDirectory() + UUID().uuidString + ".sqlite"
+        let store = try SQLiteStore(path: path)
+        try store.insert(unlock: AchievementUnlock(achievementID: "a", name: "A", projectKey: nil, threadID: nil, unlockedAt: Date(timeIntervalSince1970: 100), triggerSummary: "x"))
+        try store.markNotified(["a"])
+
+        // A new unlock recorded later is still pending; the old one stays notified.
+        let reopened = try SQLiteStore(path: path)
+        try reopened.insert(unlock: AchievementUnlock(achievementID: "b", name: "B", projectKey: nil, threadID: nil, unlockedAt: Date(timeIntervalSince1970: 200), triggerSummary: "y"))
+        XCTAssertEqual(try reopened.unnotifiedUnlocks().map(\.achievementID), ["b"])
     }
 
     func testFileFingerprintsPersistAndUpdate() throws {

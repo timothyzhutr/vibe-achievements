@@ -50,7 +50,7 @@ struct AchievementShelfView: View {
         }
         .padding()
         .frame(minWidth: 640, minHeight: 520)
-        .onAppear { state.refresh(sendNotifications: false) }
+        .onAppear { state.scanNow() }
     }
 
     private var emptyTitle: String {
