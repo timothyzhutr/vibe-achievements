@@ -83,7 +83,6 @@ public final class SQLiteStore {
                 name: name,
                 projectKey: projectKey.isEmpty ? nil : projectKey,
                 threadID: threadID.isEmpty ? nil : threadID,
-                scopeKey: "",
                 unlockedAt: unlockedAt,
                 triggerSummary: triggerSummary
             ))
@@ -114,19 +113,18 @@ public final class SQLiteStore {
     }
 
     /// Identities of unlocks already recorded, so re-indexing does not re-emit
-    /// or re-notify them. Keys match `AchievementUnlock.unlockKey`.
-    public func existingUnlockKeys() throws -> Set<String> {
+    /// or re-notify them. Achievement identity is global by `achievement_id`.
+    public func unlockedAchievementIDs() throws -> Set<String> {
         var statement: OpaquePointer?
         let sql = "SELECT achievement_id FROM achievement_unlocks;"
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { throw StoreError.prepareFailed }
         defer { sqlite3_finalize(statement) }
 
-        var keys: Set<String> = []
+        var ids: Set<String> = []
         while sqlite3_step(statement) == SQLITE_ROW {
-            let achievementID = columnString(statement, 0)
-            keys.insert(makeUnlockKey(achievementID: achievementID, scopeKey: ""))
+            ids.insert(columnString(statement, 0))
         }
-        return keys
+        return ids
     }
 
     private func migrate() throws {

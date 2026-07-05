@@ -88,7 +88,6 @@ final class SQLiteStoreTests: XCTestCase {
             name: "Actually, Wait",
             projectKey: "/tmp/a",
             threadID: "thread-a",
-            scopeKey: "thread-a",
             unlockedAt: Date(timeIntervalSince1970: 100),
             triggerSummary: "Changed direction."
         ))
@@ -97,14 +96,13 @@ final class SQLiteStoreTests: XCTestCase {
             name: "Actually, Wait",
             projectKey: "/tmp/b",
             threadID: "thread-b",
-            scopeKey: "thread-b",
             unlockedAt: Date(timeIntervalSince1970: 200),
             triggerSummary: "Changed direction again."
         ))
 
         XCTAssertEqual(try store.unlockCount(), 1)
         XCTAssertEqual(try store.allUnlocks().map(\.achievementID), ["actually_wait"])
-        XCTAssertTrue(try store.existingUnlockKeys().contains("actually_wait"))
+        XCTAssertTrue(try store.unlockedAchievementIDs().contains("actually_wait"))
     }
 
     func testFileFingerprintsPersistAndUpdate() throws {

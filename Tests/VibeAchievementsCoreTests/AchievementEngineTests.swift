@@ -8,11 +8,11 @@ final class AchievementEngineTests: XCTestCase {
 
         let claudeURL = try XCTUnwrap(Bundle.module.url(forResource: "claude-sample", withExtension: "jsonl"))
         let claude = try ClaudeCodeParser.parse(fileURL: claudeURL)
-        let claudeUnlocks = AchievementEngine.evaluate(contracts: contracts, parsed: claude, events: EventExtractor.extract(from: claude), existingUnlockKeys: ["achievement_unlocked_unlocking_achievement"])
+        let claudeUnlocks = AchievementEngine.evaluate(contracts: contracts, parsed: claude, events: EventExtractor.extract(from: claude), existingUnlockedIDs: ["achievement_unlocked_unlocking_achievement"])
 
         let codexURL = try XCTUnwrap(Bundle.module.url(forResource: "codex-sample", withExtension: "jsonl"))
         let codex = try CodexParser.parse(fileURL: codexURL)
-        let codexUnlocks = AchievementEngine.evaluate(contracts: contracts, parsed: codex, events: EventExtractor.extract(from: codex), existingUnlockKeys: ["achievement_unlocked_unlocking_achievement"])
+        let codexUnlocks = AchievementEngine.evaluate(contracts: contracts, parsed: codex, events: EventExtractor.extract(from: codex), existingUnlockedIDs: ["achievement_unlocked_unlocking_achievement"])
 
         XCTAssertTrue(claudeUnlocks.contains { $0.achievementID == "actually_wait" })
         XCTAssertTrue(codexUnlocks.contains { $0.achievementID == "rm_rf" })
@@ -34,7 +34,7 @@ final class AchievementEngineTests: XCTestCase {
             contracts: contracts,
             parsed: claude,
             events: events,
-            existingUnlockKeys: Set(firstPass.map(\.unlockKey))
+            existingUnlockedIDs: Set(firstPass.map(\.achievementID))
         )
         XCTAssertTrue(secondPass.isEmpty)
     }
@@ -52,7 +52,7 @@ final class AchievementEngineTests: XCTestCase {
             contracts: contracts,
             parsed: threadB,
             events: EventExtractor.extract(from: threadB),
-            existingUnlockKeys: Set(unlocksA.map(\.unlockKey))
+            existingUnlockedIDs: Set(unlocksA.map(\.achievementID))
         )
         XCTAssertFalse(unlocksB.contains { $0.achievementID == "actually_wait" })
     }
@@ -72,7 +72,7 @@ final class AchievementEngineTests: XCTestCase {
             contracts: contracts,
             parsed: threadB,
             events: EventExtractor.extract(from: threadB),
-            existingUnlockKeys: Set(unlocksA.map(\.unlockKey))
+            existingUnlockedIDs: Set(unlocksA.map(\.achievementID))
         )
         XCTAssertFalse(unlocksB.contains { $0.achievementID == "rm_rf" })
     }

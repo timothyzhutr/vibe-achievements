@@ -39,13 +39,12 @@ public enum Indexer {
 
     @discardableResult
     public static func index(paths: [URL], contracts: [AchievementContract], store: SQLiteStore) throws -> IndexResult {
-        var unlockedKeys = try store.existingUnlockKeys()
-        var lockedAchievementIDs = unlockedKeys
+        var unlockedIDs = try store.unlockedAchievementIDs()
         var allUnlocks: [AchievementUnlock] = []
         var warnings: [IndexWarning] = []
 
         for path in paths where path.pathExtension == "jsonl" {
-            let remainingContracts = contracts.filter { $0.active && $0.status == "keep" && !lockedAchievementIDs.contains($0.id) }
+            let remainingContracts = contracts.filter { $0.active && $0.status == "keep" && !unlockedIDs.contains($0.id) }
             guard !remainingContracts.isEmpty else { break }
 
             let parsed: ParsedTranscript
@@ -60,11 +59,10 @@ public enum Indexer {
 
             try store.upsert(thread: parsed.thread)
             let events = EventExtractor.extract(from: parsed)
-            let unlocks = AchievementEngine.evaluate(contracts: remainingContracts, parsed: parsed, events: events, existingUnlockKeys: unlockedKeys)
+            let unlocks = AchievementEngine.evaluate(contracts: remainingContracts, parsed: parsed, events: events, existingUnlockedIDs: unlockedIDs)
             for unlock in unlocks {
                 try store.insert(unlock: unlock)
-                unlockedKeys.insert(unlock.unlockKey)
-                lockedAchievementIDs.insert(unlock.achievementID)
+                unlockedIDs.insert(unlock.achievementID)
             }
             allUnlocks.append(contentsOf: unlocks)
         }
