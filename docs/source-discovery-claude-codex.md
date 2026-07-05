@@ -12,6 +12,16 @@ Claude Code and Codex both expose useful local transcript data.
 - **Codex:** viable MVP source. Transcripts are JSONL under `$CODEX_HOME/sessions` and `$CODEX_HOME/archived_sessions`, defaulting to `~/.codex/...`.
 - **Claude Desktop / claude.ai app:** not recommended for MVP. Local app storage exists under `~/Library/Application Support/Claude`, but it appears to use browser-style IndexedDB/LevelDB storage. That is more brittle and less aligned with a lightweight app.
 
+The app exposes local source controls in **Settings**:
+
+- Claude Code and Codex can each be enabled or disabled.
+- Claude Code can be pointed at a manual projects folder. If unset, the app uses `~/.claude/projects`.
+- Codex can be pointed at a manual Codex home folder. If unset, the app uses `$CODEX_HOME` or `~/.codex`.
+- When a Codex home folder is selected, the scanner derives `sessions` and `archived_sessions` below that folder.
+- Resetting a source clears its manual folder and returns it to auto-detection.
+
+These settings are local-only `UserDefaults` values and do not import, copy, or modify transcript files.
+
 ## Local Validation On This Laptop
 
 Validated on `/Users/Timothy` on 2026-07-04:
@@ -147,6 +157,12 @@ Watch:
 
 ```text
 ~/.claude/projects/**/*.jsonl
+```
+
+If the user selects a manual Claude Code source in Settings, watch:
+
+```text
+<selected Claude projects folder>/**/*.jsonl
 ```
 
 Parse:
@@ -297,6 +313,14 @@ $CODEX_HOME/sessions/**/*.jsonl
 $CODEX_HOME/archived_sessions/*.jsonl
 ```
 
+If the user selects a manual Codex source in Settings, treat the selected folder
+as `CODEX_HOME` and watch:
+
+```text
+<selected Codex home>/sessions/**/*.jsonl
+<selected Codex home>/archived_sessions/*.jsonl
+```
+
 Optionally read:
 
 ```text
@@ -400,6 +424,10 @@ Build MVP connectors for **Claude Code** and **Codex local transcripts**, not Cl
 The first technical milestone should be:
 
 1. Discover default source folders.
-2. Let the user add/correct watched folders.
-3. Index normalized thread/message metadata locally.
-4. Unlock one metadata achievement and one keyword achievement from real local transcripts.
+2. Let the user enable/disable Claude Code and Codex sources.
+3. Let the user correct watched folders through Settings:
+   - Claude Code: selected projects folder is scanned directly.
+   - Codex: selected home folder derives `sessions` and `archived_sessions`.
+4. Reset manual folders back to auto-detection.
+5. Index normalized thread/message metadata locally.
+6. Unlock one metadata achievement and one keyword achievement from real local transcripts.
