@@ -9,15 +9,19 @@ final class AppState: ObservableObject {
     @Published var achievementContracts: [AchievementContract] = []
     @Published var lastScanSummary: String = "No scan yet"
     @Published var lastError: String?
+    @Published var sourceSettings: AppSourceSettings
 
     private let storePath: String
+    private let sourceSettingsDefaults: UserDefaults
     private var isScanning = false
     private var pendingNotifyingScan = false
 
     private static let backfillSummaryDeliveredKey = "VibeAchievements.backfillSummaryDelivered"
 
-    init(storePath: String = AppState.defaultStorePath()) {
+    init(storePath: String = AppState.defaultStorePath(), sourceSettingsDefaults: UserDefaults = .standard) {
         self.storePath = storePath
+        self.sourceSettingsDefaults = sourceSettingsDefaults
+        self.sourceSettings = AppSourceSettings.load(from: sourceSettingsDefaults)
     }
 
     func refresh(sendNotifications: Bool = false) {
@@ -37,8 +41,9 @@ final class AppState: ObservableObject {
         }
         isScanning = true
         let storePath = self.storePath
+        let sourceConfiguration = sourceSettings.discoveryConfiguration
         Task {
-            let result = await Self.performScan(storePath: storePath)
+            let result = await Self.performScan(storePath: storePath, sourceConfiguration: sourceConfiguration)
             self.apply(result, sendNotifications: sendNotifications)
             self.isScanning = false
             if self.pendingNotifyingScan {
@@ -46,6 +51,14 @@ final class AppState: ObservableObject {
                 self.scanNow(sendNotifications: true)
             }
         }
+    }
+
+    func updateSourceSettings(_ update: (inout AppSourceSettings) -> Void) {
+        var copy = sourceSettings
+        update(&copy)
+        sourceSettings = copy
+        copy.save(to: sourceSettingsDefaults)
+        scanNow(sendNotifications: false)
     }
 
     private func apply(_ result: ScanResult, sendNotifications: Bool) {
@@ -107,8 +120,8 @@ private struct ScanResult: Sendable {
 extension AppState {
     nonisolated static let detectorFingerprintVersion = "detectors-v2"
 
-    nonisolated private static func performScan(storePath: String) async -> ScanResult {
-        let locations = SourceDiscovery.discover()
+    nonisolated private static func performScan(storePath: String, sourceConfiguration: SourceConfiguration) async -> ScanResult {
+        let locations = SourceDiscovery.discover(configuration: sourceConfiguration)
         var parts: [String] = []
         if locations.claudeProjects != nil { parts.append("Claude Code") }
         if locations.codexSessions != nil || locations.codexArchivedSessions != nil { parts.append("Codex") }
