@@ -14,7 +14,7 @@ final class AppState: ObservableObject {
     private let storePath: String
     private let sourceSettingsDefaults: UserDefaults
     private var isScanning = false
-    private var pendingNotifyingScan = false
+    private var pendingScanSendsNotifications: Bool?
 
     private static let backfillSummaryDeliveredKey = "VibeAchievements.backfillSummaryDelivered"
 
@@ -33,10 +33,12 @@ final class AppState: ObservableObject {
     /// only the published-state update and notifications run back on main.
     func scanNow(sendNotifications: Bool = true) {
         guard !isScanning else {
-            // A notifying scan must not be silently dropped behind an in-flight
-            // one (e.g. the post-permission scan arriving during the shelf's
-            // silent onAppear scan) — queue it to run next.
-            if sendNotifications { pendingNotifyingScan = true }
+            // Source changes and post-permission scans both need a follow-up
+            // pass after the in-flight scan, with notification intent preserved.
+            pendingScanSendsNotifications = Self.mergedPendingScanSendsNotifications(
+                existing: pendingScanSendsNotifications,
+                incoming: sendNotifications
+            )
             return
         }
         isScanning = true
@@ -46,9 +48,9 @@ final class AppState: ObservableObject {
             let result = await Self.performScan(storePath: storePath, sourceConfiguration: sourceConfiguration)
             self.apply(result, sendNotifications: sendNotifications)
             self.isScanning = false
-            if self.pendingNotifyingScan {
-                self.pendingNotifyingScan = false
-                self.scanNow(sendNotifications: true)
+            if let pendingScanSendsNotifications = self.pendingScanSendsNotifications {
+                self.pendingScanSendsNotifications = nil
+                self.scanNow(sendNotifications: pendingScanSendsNotifications)
             }
         }
     }
@@ -78,14 +80,13 @@ final class AppState: ObservableObject {
             // permission. Celebrate the whole backfill once — based on the total
             // unlocks in the store, not this scan's newly-changed files, so the
             // summary still fires if the silent shelf scan already did the work.
-            defaults.set(true, forKey: Self.backfillSummaryDeliveredKey)
             let total = recentUnlocks.count
-            if total > 0 {
-                NotificationController.notify(
-                    unlockName: "Achievements unlocked",
-                    summary: "Found \(total) achievement\(total == 1 ? "" : "s") in your coding history."
-                )
-            }
+            guard Self.shouldMarkBackfillSummaryDelivered(totalUnlocks: total) else { return }
+            defaults.set(true, forKey: Self.backfillSummaryDeliveredKey)
+            NotificationController.notify(
+                unlockName: "Achievements unlocked",
+                summary: "Found \(total) achievement\(total == 1 ? "" : "s") in your coding history."
+            )
             return
         }
 
@@ -205,6 +206,14 @@ extension AppState {
     /// `error`) must not suppress them — only a hard scan failure does.
     nonisolated static func notificationsAllowed(sendNotifications: Bool, hardError: String?) -> Bool {
         sendNotifications && hardError == nil
+    }
+
+    nonisolated static func shouldMarkBackfillSummaryDelivered(totalUnlocks: Int) -> Bool {
+        totalUnlocks > 0
+    }
+
+    nonisolated static func mergedPendingScanSendsNotifications(existing: Bool?, incoming: Bool) -> Bool {
+        (existing ?? false) || incoming
     }
 
     /// A concise, user-facing note about skipped files, surfaced through the

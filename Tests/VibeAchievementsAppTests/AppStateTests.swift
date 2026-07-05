@@ -11,6 +11,18 @@ final class AppStateTests: XCTestCase {
         XCTAssertFalse(AppState.notificationsAllowed(sendNotifications: false, hardError: nil))
     }
 
+    func testBackfillSummaryIsMarkedDeliveredOnlyWhenThereAreUnlocks() {
+        XCTAssertFalse(AppState.shouldMarkBackfillSummaryDelivered(totalUnlocks: 0))
+        XCTAssertTrue(AppState.shouldMarkBackfillSummaryDelivered(totalUnlocks: 1))
+    }
+
+    func testPendingScanRequestsKeepQuietRescansAndUpgradeToNotifying() {
+        XCTAssertEqual(AppState.mergedPendingScanSendsNotifications(existing: nil, incoming: false), false)
+        XCTAssertEqual(AppState.mergedPendingScanSendsNotifications(existing: false, incoming: false), false)
+        XCTAssertEqual(AppState.mergedPendingScanSendsNotifications(existing: false, incoming: true), true)
+        XCTAssertEqual(AppState.mergedPendingScanSendsNotifications(existing: true, incoming: false), true)
+    }
+
     func testFailedParseFilesAreNotFingerprintRecorded() {
         let warnings = [IndexWarning(path: "/tmp/bad.jsonl", message: "bad json")]
 
