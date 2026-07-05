@@ -4,19 +4,19 @@ import UserNotifications
 enum NotificationController {
     /// UNUserNotificationCenter requires a real app bundle; calling it from a
     /// bare executable (e.g. `swift run`) raises an Objective-C exception.
-    private static var notificationsAvailable: Bool {
+    static var notificationsAvailable: Bool {
         Bundle.main.bundleIdentifier != nil
     }
 
-    static func requestAuthorization(completion: (@Sendable () -> Void)? = nil) {
+    static func requestAuthorization(completion: (@Sendable (Bool) -> Void)? = nil) {
         guard notificationsAvailable else {
             // No notification support in this context, but the caller still
             // needs its continuation (it kicks off the initial scan).
-            completion?()
+            completion?(false)
             return
         }
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in
-            completion?()
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            completion?(granted)
         }
     }
 

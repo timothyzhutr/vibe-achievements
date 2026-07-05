@@ -17,4 +17,11 @@ final class AppStateTests: XCTestCase {
 
         XCTAssertTrue(AppState.fingerprint(for: url).hasPrefix(AppState.detectorFingerprintVersion + "-"))
     }
+
+    func testNotificationStateIsMarkedOnlyWhenNotificationsCanSchedule() {
+        XCTAssertFalse(AppState.shouldMarkNotificationsDelivered(notify: false, notificationsAvailable: true, pendingCount: 1))
+        XCTAssertFalse(AppState.shouldMarkNotificationsDelivered(notify: true, notificationsAvailable: false, pendingCount: 1))
+        XCTAssertFalse(AppState.shouldMarkNotificationsDelivered(notify: true, notificationsAvailable: true, pendingCount: 0))
+        XCTAssertTrue(AppState.shouldMarkNotificationsDelivered(notify: true, notificationsAvailable: true, pendingCount: 1))
+    }
 }

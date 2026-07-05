@@ -228,7 +228,11 @@ public enum EventExtractor {
             var searchStart = text.startIndex
             while let range = text.range(of: phrase, range: searchStart..<text.endIndex) {
                 searchStart = range.upperBound
-                if startsAtWordishBoundary(range.lowerBound, in: text) {
+                // Whole-word match: the token must be bounded on both sides, so
+                // short tokens ("pr", "tab", "ci") don't match as prefixes of
+                // unrelated words ("project", "table", "city").
+                if startsAtWordishBoundary(range.lowerBound, in: text),
+                   endsAtWordishBoundary(range.upperBound, in: text) {
                     starts.append(range.lowerBound)
                 }
             }
@@ -238,6 +242,10 @@ public enum EventExtractor {
 
     private static func startsAtWordishBoundary(_ index: String.Index, in text: String) -> Bool {
         index == text.startIndex || !text[text.index(before: index)].isLetter
+    }
+
+    private static func endsAtWordishBoundary(_ index: String.Index, in text: String) -> Bool {
+        index == text.endIndex || !text[index].isLetter
     }
 
     private static func threadEvent(_ type: EventType, parsed: ParsedTranscript) -> ExtractedEvent {

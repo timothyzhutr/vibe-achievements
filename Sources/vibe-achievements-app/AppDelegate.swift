@@ -22,9 +22,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem?.menu = menu
 
-        NotificationController.requestAuthorization { [weak self] in
+        NotificationController.requestAuthorization { [weak self] granted in
             Task { @MainActor in
-                self?.appState.notificationsBecameAvailable()
+                if granted {
+                    self?.appState.notificationsBecameAvailable()
+                } else {
+                    self?.appState.scanNow()
+                }
             }
         }
         scanTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in

@@ -80,6 +80,17 @@ final class EventExtractorTests: XCTestCase {
         XCTAssertTrue(EventExtractor.extract(from: cleanup).contains { $0.type == .destructiveCleanupSeen })
     }
 
+    func testKeywordMatchesRequireTrailingWordBoundary() {
+        let parsed = makeUserTranscript([
+            "this project is a prototype prompt about a database table"
+        ])
+
+        let events = EventExtractor.extract(from: parsed)
+
+        XCTAssertFalse(events.contains { $0.type == .shipLanguageSeen })
+        XCTAssertFalse(events.contains { $0.type == .uiControlSeen })
+    }
+
     private func makeUserTranscript(_ texts: [String]) -> ParsedTranscript {
         makeTranscript(texts.map { (.user, $0) })
     }

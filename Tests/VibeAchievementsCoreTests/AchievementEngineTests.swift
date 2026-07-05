@@ -105,6 +105,18 @@ final class AchievementEngineTests: XCTestCase {
         XCTAssertFalse(try unlockIDs(for: transcript(userTexts: ["let me think through the tradeoff", "please implement the fix", "therefore the conclusion makes sense"])).contains("rubber_duck_with_a_gpu"))
     }
 
+    func testShortKeywordTokensMatchWholeWordsOnly() throws {
+        // Greedy prefix matching would let "pr", "tab", "poc" match inside
+        // "project", "table", "pocket" and unlock these on nearly any transcript.
+        XCTAssertFalse(try unlockIDs(for: transcript(userTexts: ["let's work on the project structure and fix that problem"])).contains("shipwright"))
+        XCTAssertFalse(try unlockIDs(for: transcript(userTexts: ["render the data in a table"])).contains("the_button_exists_now"))
+        XCTAssertFalse(try unlockIDs(for: transcript(userTexts: ["put it in my pocket"])).contains("weekend_mvp_energy"))
+
+        // The genuine whole words still unlock.
+        XCTAssertTrue(try unlockIDs(for: transcript(userTexts: ["please open a pr for this"])).contains("shipwright"))
+        XCTAssertTrue(try unlockIDs(for: transcript(userTexts: ["switch to the settings tab"])).contains("the_button_exists_now"))
+    }
+
     func testUnlocksActuallyWaitAndRmRf() throws {
         let contractsURL = try XCTUnwrap(Bundle.module.url(forResource: "achievements-sample", withExtension: "jsonl"))
         let contracts = try AchievementContractLoader.load(jsonlURL: contractsURL)

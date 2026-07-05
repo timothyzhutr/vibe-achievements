@@ -139,10 +139,16 @@ extension AppState {
             // never notified again — across scans or app restarts.
             if notify {
                 let pending = try store.unnotifiedUnlocks()
-                for unlock in pending {
-                    NotificationController.notify(unlockName: unlock.name, summary: unlock.triggerSummary)
+                if shouldMarkNotificationsDelivered(
+                    notify: notify,
+                    notificationsAvailable: NotificationController.notificationsAvailable,
+                    pendingCount: pending.count
+                ) {
+                    for unlock in pending {
+                        NotificationController.notify(unlockName: unlock.name, summary: unlock.triggerSummary)
+                    }
+                    try store.markNotified(pending.map(\.achievementID))
                 }
-                try store.markNotified(pending.map(\.achievementID))
             }
 
             let recent = try store.allUnlocks()
@@ -179,6 +185,10 @@ extension AppState {
 
     nonisolated static func shouldRecordFingerprint(for path: String, warnings: [IndexWarning]) -> Bool {
         !warnings.contains { $0.path == path }
+    }
+
+    nonisolated static func shouldMarkNotificationsDelivered(notify: Bool, notificationsAvailable: Bool, pendingCount: Int) -> Bool {
+        notify && notificationsAvailable && pendingCount > 0
     }
 
     /// A concise, user-facing note about skipped files, surfaced through the
