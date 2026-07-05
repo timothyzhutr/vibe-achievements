@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 
 APP_NAME="VibeAchievements"
 BUNDLE_ID="com.timothyzhutr.vibe-achievements"
-VERSION="0.1.0"
+VERSION="0.2.0"
 PRODUCT="vibe-achievements-app"
 
 echo "==> Building release binary"
