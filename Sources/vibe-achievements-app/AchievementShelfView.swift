@@ -50,7 +50,7 @@ struct AchievementShelfView: View {
         }
         .padding()
         .frame(minWidth: 640, minHeight: 520)
-        .onAppear { state.refresh(sendNotifications: false) }
+        .onAppear { state.scanNow() }
     }
 
     private var emptyTitle: String {
@@ -99,7 +99,7 @@ private struct AchievementCatalogRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            AchievementIconPlaceholder(isUnlocked: item.isUnlocked)
+            AchievementIconPlaceholder(achievementID: item.contract.id, isUnlocked: item.isUnlocked)
 
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -182,6 +182,7 @@ private struct AchievementCatalogRow: View {
 }
 
 private struct AchievementIconPlaceholder: View {
+    let achievementID: String
     let isUnlocked: Bool
 
     var body: some View {
@@ -190,8 +191,8 @@ private struct AchievementIconPlaceholder: View {
                 .fill(isUnlocked ? Color.primary.opacity(0.12) : Color.secondary.opacity(0.08))
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(isUnlocked ? Color.primary.opacity(0.18) : Color.secondary.opacity(0.12), lineWidth: 1)
-            Image(systemName: isUnlocked ? "sparkles" : "lock.fill")
-                .font(.system(size: 20, weight: .semibold))
+            Image(systemName: AchievementIconCatalog.symbolName(for: achievementID))
+                .font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(isUnlocked ? Color.primary : Color.secondary.opacity(0.55))
         }
         .frame(width: 54, height: 54)

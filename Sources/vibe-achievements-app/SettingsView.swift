@@ -58,18 +58,10 @@ struct SettingsView: View {
                     state.updateSourceSettings { $0.resetCodexPath() }
                 }
             )
-
-            Divider()
-
-            Button {
-                state.scanNow(sendNotifications: true)
-            } label: {
-                Label("Scan Now", systemImage: "arrow.clockwise")
-            }
         }
         .padding()
         .frame(width: 560)
-        .onAppear { state.refresh(sendNotifications: false) }
+        .onAppear { state.scanNow() }
     }
 
     private func chooseDirectory(title: String, onSelection: (String) -> Void) {

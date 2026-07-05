@@ -3,26 +3,6 @@ import XCTest
 import VibeAchievementsCore
 
 final class AppStateTests: XCTestCase {
-    func testWarningsDoNotSuppressNotificationsButHardErrorsDo() {
-        // Soft warnings surface via `error`, not `hardError`, so they must not
-        // block notifications; a hard failure or sendNotifications:false does.
-        XCTAssertTrue(AppState.notificationsAllowed(sendNotifications: true, hardError: nil))
-        XCTAssertFalse(AppState.notificationsAllowed(sendNotifications: true, hardError: "Scan failed"))
-        XCTAssertFalse(AppState.notificationsAllowed(sendNotifications: false, hardError: nil))
-    }
-
-    func testBackfillSummaryIsMarkedDeliveredOnlyWhenThereAreUnlocks() {
-        XCTAssertFalse(AppState.shouldMarkBackfillSummaryDelivered(totalUnlocks: 0))
-        XCTAssertTrue(AppState.shouldMarkBackfillSummaryDelivered(totalUnlocks: 1))
-    }
-
-    func testPendingScanRequestsKeepQuietRescansAndUpgradeToNotifying() {
-        XCTAssertEqual(AppState.mergedPendingScanSendsNotifications(existing: nil, incoming: false), false)
-        XCTAssertEqual(AppState.mergedPendingScanSendsNotifications(existing: false, incoming: false), false)
-        XCTAssertEqual(AppState.mergedPendingScanSendsNotifications(existing: false, incoming: true), true)
-        XCTAssertEqual(AppState.mergedPendingScanSendsNotifications(existing: true, incoming: false), true)
-    }
-
     func testFailedParseFilesAreNotFingerprintRecorded() {
         let warnings = [IndexWarning(path: "/tmp/bad.jsonl", message: "bad json")]
 
@@ -36,5 +16,12 @@ final class AppStateTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url) }
 
         XCTAssertTrue(AppState.fingerprint(for: url).hasPrefix(AppState.detectorFingerprintVersion + "-"))
+    }
+
+    func testNotificationStateIsMarkedOnlyWhenNotificationsCanSchedule() {
+        XCTAssertFalse(AppState.shouldMarkNotificationsDelivered(notify: false, notificationsAvailable: true, pendingCount: 1))
+        XCTAssertFalse(AppState.shouldMarkNotificationsDelivered(notify: true, notificationsAvailable: false, pendingCount: 1))
+        XCTAssertFalse(AppState.shouldMarkNotificationsDelivered(notify: true, notificationsAvailable: true, pendingCount: 0))
+        XCTAssertTrue(AppState.shouldMarkNotificationsDelivered(notify: true, notificationsAvailable: true, pendingCount: 1))
     }
 }
