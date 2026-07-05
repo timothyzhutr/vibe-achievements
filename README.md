@@ -9,9 +9,10 @@ Wait"*, *"rm -rf"*, *"Stack Trace Oracle"* — as your vibe-coding patterns emer
 No cloud, no account, no conversation upload, no LLM analysis. Everything stays
 on your machine.
 
-> Status: early MVP. The full local pipeline works end to end (discover → parse
-> → store → extract → unlock → notify), with a small starter set of achievements
-> wired up. See [Roadmap](#roadmap).
+> Status: MVP. The full local pipeline works end to end (discover → parse →
+> store → extract → unlock → notify), with all single-transcript achievements
+> wired up (27 of 46). The remaining 19 need cross-transcript aggregation. See
+> [Roadmap](#roadmap).
 
 ## What it does
 
@@ -19,11 +20,12 @@ on your machine.
 - Parses transcripts defensively (malformed lines/files are skipped, never fatal).
 - Normalizes everything into a small local SQLite database.
 - Extracts lightweight events (corrections, stack traces, destructive cleanup,
-  recovery, success, long threads…).
-- Evaluates achievement rules and unlocks them, scoped by each achievement's
-  cooldown (per-thread, per-project, or global).
-- Fires native macOS notifications for new unlocks; the first historical
-  backfill is collapsed into a single summary instead of a burst.
+  recovery, success, long threads, context/budget talk, UI work, shipping…).
+- Evaluates achievement rules and unlocks each one **once per user, ever**
+  (global identity — the project/thread where it first fired is kept for display
+  only).
+- Fires one native macOS notification per newly unlocked achievement, exactly
+  once, tracked in the database so it never re-notifies across scans or restarts.
 - Shows an achievement shelf and a source/status window from the menu bar.
 
 ## How it works
@@ -45,7 +47,7 @@ on your machine.
                                             │
                                             ▼
                                    AchievementEngine
-                          (rules + cooldown-scoped unlock keys)
+                          (rule table + global once-per-user unlocks)
                                             │
                                             ▼
                           SQLite unlocks ──► notifications + shelf
@@ -84,8 +86,8 @@ swift run vibe-achievements-app
 ```
 
 Runs as a menu-bar **accessory** app (no Dock icon). Use the **Vibe** menu bar
-item to open the achievement shelf, trigger a manual **Scan Now**, open Settings,
-or quit.
+item to open the achievement shelf, open Settings, or quit. Scans run
+automatically on launch, when a window opens, and on a periodic timer.
 
 > Note: notifications require a real app bundle identifier, so they are
 > disabled when launched via `swift run` (the menu bar UI and indexing still
@@ -138,7 +140,8 @@ Sources/
     TextContent.swift           # shared content extraction
     AchievementContract.swift   # contract loader (+ bundled V1)
     EventExtractor.swift        # keyword/metadata event signals
-    AchievementEngine.swift     # rules + cooldown-scoped unlocks
+    EventSummary.swift          # per-thread event facts (presence/count/sequence)
+    AchievementEngine.swift     # rule table + global once-per-user unlocks
     SQLiteStore.swift           # local SQLite persistence
     Indexer.swift               # orchestrates a scan
     Resources/
@@ -167,14 +170,12 @@ so the app can load it without a docs dependency; a test
 
 ## Roadmap
 
-- Wire the remaining achievements (currently ~5 of 46 rules are implemented:
-  the first-unlock meta achievement plus `actually_wait`, `one_more_prompt`,
-  `rm_rf`, and `it_works_therefore_it_is`).
-- Enforce time-windowed cooldowns (e.g. `once_per_project_per_7_days` is
-  currently treated as once-per-project).
+- Wire the remaining 19 achievements. These need a cross-transcript evaluation
+  stage — counts, time windows, and multi-tool/multi-model spans over the stored
+  `threads` table (e.g. *"Party Finder"*, *"Model Diplomat"*, *"Platinum
+  Memory"*) — which the current single-transcript engine deliberately doesn't do.
 - Developer ID signing + notarization for public distribution (local `.app`/
   `.dmg` packaging already works — see [Packaging](#packaging-app--dmg)).
-- Cross-tool achievements (same project across Claude + Codex).
 
 ## Design docs
 

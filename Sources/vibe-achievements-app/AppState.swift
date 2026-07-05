@@ -81,9 +81,7 @@ private struct ScanResult: Sendable {
     var lastScanSummary: String
     var achievementContracts: [AchievementContract]
     var recentUnlocks: [AchievementUnlock]?
-    var newUnlocks: [AchievementUnlock]
     var error: String?
-    var hardError: String?
 }
 
 extension AppState {
@@ -157,9 +155,7 @@ extension AppState {
                 lastScanSummary: scanSummary(changedFileCount: changed.count, newUnlockCount: newUnlocks.count),
                 achievementContracts: contracts,
                 recentUnlocks: recent,
-                newUnlocks: newUnlocks,
-                error: warningSummary(for: warnings),
-                hardError: nil
+                error: warningSummary(for: warnings)
             )
         } catch {
             let message = String(describing: error)
@@ -168,9 +164,7 @@ extension AppState {
                 lastScanSummary: "Scan failed",
                 achievementContracts: [],
                 recentUnlocks: nil,
-                newUnlocks: [],
-                error: message,
-                hardError: message
+                error: message
             )
         }
     }
