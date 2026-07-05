@@ -1,5 +1,12 @@
 # Bucket A Implementation Plan
 
+> **Status: implemented.** All 22 Bucket A achievements are wired and tested
+> (`EventSummary`, the data-driven `AchievementRule`/`KeywordRule` tables, and
+> `detectorFingerprintVersion = "detectors-v3"` all landed). Keyword matching was
+> hardened to whole-word boundaries to avoid short tokens (`pr`, `tab`) matching
+> inside common words. This document is kept for design rationale. Bucket B (the
+> 19 cross-transcript achievements) remains future work.
+
 Wiring the 22 **single-transcript** achievements that can be detected from one
 `.jsonl` file alone (keyword presence, occurrence counts, ordered sequences, and
 per-message/thread metadata). The 19 Bucket B achievements are deferred — they
