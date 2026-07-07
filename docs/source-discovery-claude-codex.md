@@ -12,13 +12,16 @@ Claude Code and Codex both expose useful local transcript data.
 - **Codex:** viable MVP source. Transcripts are JSONL under `$CODEX_HOME/sessions` and `$CODEX_HOME/archived_sessions`, defaulting to `~/.codex/...`.
 - **Claude Desktop / claude.ai app:** not recommended for MVP. Local app storage exists under `~/Library/Application Support/Claude`, but it appears to use browser-style IndexedDB/LevelDB storage. That is more brittle and less aligned with a lightweight app.
 
-The app exposes local source controls in **Settings**:
+The app exposes local source controls in **Settings** under
+**Conversation Sources**:
 
-- Claude Code and Codex can each be enabled or disabled.
+- Claude Code and Codex each have a dedicated row.
+- Each row has a scan toggle, a visible automatic-or-selected folder path,
+  **Choose Folder**, and **Use Default**.
 - Claude Code can be pointed at a manual projects folder. If unset, the app uses `~/.claude/projects`.
 - Codex can be pointed at a manual Codex home folder. If unset, the app uses `$CODEX_HOME` or `~/.codex`.
 - When a Codex home folder is selected, the scanner derives `sessions` and `archived_sessions` below that folder.
-- Resetting a source clears its manual folder and returns it to auto-detection.
+- Using **Use Default** clears a source's manual folder and returns it to auto-detection.
 
 These settings are local-only `UserDefaults` values and do not import, copy, or modify transcript files.
 
