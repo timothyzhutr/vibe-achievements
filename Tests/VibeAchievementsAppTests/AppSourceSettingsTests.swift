@@ -39,4 +39,30 @@ final class AppSourceSettingsTests: XCTestCase {
         XCTAssertNil(settings.codexHomePath)
     }
 
+    func testSourceDirectoryRowsDescribeDefaultAndManualSelections() {
+        let defaultSettings = AppSourceSettings()
+
+        let defaultRows = SourceDirectorySetting.rows(for: defaultSettings)
+        XCTAssertEqual(defaultRows.map(\.platformName), ["Claude Code", "Codex"])
+        XCTAssertEqual(defaultRows.map(\.selectionMode), [.automatic, .automatic])
+        XCTAssertEqual(defaultRows[0].folderRole, "Projects folder")
+        XCTAssertEqual(defaultRows[0].displayPath, "~/.claude/projects")
+        XCTAssertEqual(defaultRows[1].folderRole, "Codex home folder")
+        XCTAssertEqual(defaultRows[1].displayPath, "$CODEX_HOME or ~/.codex")
+
+        let manualSettings = AppSourceSettings(
+            claudeProjectsPath: "/Users/tim/custom-claude",
+            codexHomePath: "/Users/tim/custom-codex"
+        )
+        let manualRows = SourceDirectorySetting.rows(for: manualSettings)
+        XCTAssertEqual(manualRows.map(\.selectionMode), [.manual, .manual])
+        XCTAssertEqual(manualRows[0].displayPath, "/Users/tim/custom-claude")
+        XCTAssertEqual(manualRows[1].displayPath, "/Users/tim/custom-codex")
+    }
+
+    func testSettingsWindowIsLargeEnoughForSourceSelectors() {
+        XCTAssertGreaterThanOrEqual(AppDelegate.settingsWindowContentSize.width, 680)
+        XCTAssertGreaterThanOrEqual(AppDelegate.settingsWindowContentSize.height, 460)
+    }
+
 }

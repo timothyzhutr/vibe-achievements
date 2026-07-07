@@ -55,3 +55,52 @@ struct AppSourceSettings: Equatable, Sendable {
         static let codexHomePath = "sources.codex.homePath"
     }
 }
+
+enum SourceDirectorySelectionMode: Equatable, Sendable {
+    case automatic
+    case manual
+}
+
+struct SourceDirectorySetting: Equatable, Sendable, Identifiable {
+    enum Platform: Equatable, Sendable {
+        case claude
+        case codex
+    }
+
+    var id: Platform { platform }
+    let platform: Platform
+    let platformName: String
+    let folderRole: String
+    let defaultPath: String
+    let manualPath: String?
+    let isEnabled: Bool
+
+    var selectionMode: SourceDirectorySelectionMode {
+        manualPath == nil ? .automatic : .manual
+    }
+
+    var displayPath: String {
+        manualPath ?? defaultPath
+    }
+
+    static func rows(for settings: AppSourceSettings) -> [SourceDirectorySetting] {
+        [
+            SourceDirectorySetting(
+                platform: .claude,
+                platformName: "Claude Code",
+                folderRole: "Projects folder",
+                defaultPath: "~/.claude/projects",
+                manualPath: settings.claudeProjectsPath,
+                isEnabled: settings.claudeEnabled
+            ),
+            SourceDirectorySetting(
+                platform: .codex,
+                platformName: "Codex",
+                folderRole: "Codex home folder",
+                defaultPath: "$CODEX_HOME or ~/.codex",
+                manualPath: settings.codexHomePath,
+                isEnabled: settings.codexEnabled
+            )
+        ]
+    }
+}

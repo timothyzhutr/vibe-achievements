@@ -16,8 +16,8 @@ on your machine.
 
 ## What it does
 
-- Auto-detects local Claude Code and Codex transcript folders, with Settings
-  controls for correcting or disabling each source.
+- Auto-detects local Claude Code and Codex transcript folders, with explicit
+  per-platform Settings controls for correcting or disabling each source.
 - Parses transcripts defensively (malformed lines/files are skipped, never fatal).
 - Normalizes everything into a small local SQLite database.
 - Extracts lightweight events (corrections, stack traces, destructive cleanup,
@@ -27,7 +27,8 @@ on your machine.
   only).
 - Fires one native macOS notification per newly unlocked achievement, exactly
   once, tracked in the database so it never re-notifies across scans or restarts.
-- Shows an achievement shelf and a source/status window from the menu bar.
+- Shows an achievement shelf and a Settings window with source folder selectors
+  and scan status from the menu bar.
 
 ## How it works
 
@@ -68,14 +69,17 @@ Source stores are read **read-only**; the app never modifies your history.
 
 ### Source settings
 
-Open **Settings** from the menu bar item to control watched sources:
+Open **Settings** from the menu bar item to control watched sources. The
+**Conversation Sources** panel shows one row per supported platform:
 
-- Toggle `Claude Code` or `Codex` scanning on or off.
-- Use **Choose...** to point Claude Code at a projects folder, such as
+- Toggle `Claude Code` or `Codex` scanning on or off with the row switch.
+- Use **Choose Folder** to point Claude Code at a projects folder, such as
   `~/.claude/projects`.
-- Use **Choose...** to point Codex at its home folder, such as `~/.codex`; the
-  app derives `sessions` and `archived_sessions` below that folder.
-- Use **Reset** to return a source to auto-detection.
+- Use **Choose Folder** to point Codex at its home folder, such as `~/.codex`;
+  the app derives `sessions` and `archived_sessions` below that folder.
+- Use **Use Default** to clear a manual folder and return that source to
+  auto-detection.
+- Use **Scan Now** to rescan immediately after changing folders.
 
 Settings are stored locally in `UserDefaults` and trigger a quiet rescan after
 changes.
@@ -103,8 +107,8 @@ swift run vibe-achievements-app
 Runs as a menu-bar **accessory** app (no Dock icon). Use the **Vibe** menu bar
 item to open the achievement shelf, open Settings, or quit. Scans run
 automatically on launch, when a window opens, and on a periodic timer. Settings
-lets you enable/disable Claude Code and Codex sources, choose manual source
-folders, and reset back to auto-detection.
+lets you enable/disable Claude Code and Codex rows, choose manual source
+folders, reset back to auto-detection, and scan immediately.
 
 > Note: notifications require a real app bundle identifier, so they are
 > disabled when launched via `swift run` (the menu bar UI and indexing still
