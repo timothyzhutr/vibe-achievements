@@ -6,7 +6,11 @@ Replace the current JSONL-path scanner with a small source-adapter boundary that
 supports file, directory, and SQLite conversation stores without coupling the
 achievement engine to platform-specific schemas.
 
-## Current Problem
+**Implementation status:** The shared contract, read-only SQLite helper, Claude
+Code/Codex adapters, incremental source-record indexer, registry, and AppState
+wiring are implemented on `codex/conversation-source-adapters`.
+
+## Prior Problem
 
 `SourceDiscovery` currently returns three optional folders, `AppState` computes
 file fingerprints, and `Indexer` accepts only `.jsonl` URLs. `Indexer` then
@@ -46,6 +50,7 @@ public struct SourceInventory: Sendable {
     public var records: [ConversationSourceRecord]
     public var warnings: [SourceWarning]
     public var detectedRoots: [URL]
+    public var isComplete: Bool
 }
 
 public struct ConversationSourceRecord: Hashable, Sendable {
@@ -97,15 +102,18 @@ CREATE TABLE source_records (
   display_path TEXT NOT NULL,
   thread_id TEXT NOT NULL,
   last_seen_scan_id TEXT NOT NULL,
+  missing_scan_count INTEGER NOT NULL DEFAULT 0,
+  last_missing_scan_id TEXT NOT NULL DEFAULT '',
   PRIMARY KEY (source_tool, record_id)
 );
 ```
 
 The existing `source_files` rows migrate by recognizing the existing Claude and
-Codex path families, using the path as record ID and the already-normalized
-thread ID when available. Unrecognized development rows are left behind until
-the old table is retired. A detector-version prefix invalidates all relevant
-fingerprints when normalized behavior changes.
+Codex path families and deriving a stable ID from the transcript filename. Since
+legacy rows do not contain normalized thread IDs, each migrated record is parsed
+once before it can be treated as unchanged. Unrecognized development rows are
+left behind until the old table is retired. A detector-version prefix
+invalidates all relevant fingerprints when normalized behavior changes.
 
 ## Indexing Flow
 
@@ -123,7 +131,8 @@ fingerprints when normalized behavior changes.
 
 Source removal deletes the app's derived thread/facts only after the same record
 is absent for two complete scans. This avoids transient disappearance while a
-tool rotates or replaces storage.
+tool rotates or replaces storage. Partial inventories, discovery warnings, and
+ad hoc CLI file lists never advance removal reconciliation.
 
 ## Read-Only SQLite Helper
 

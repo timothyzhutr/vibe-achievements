@@ -1,14 +1,26 @@
 import Foundation
 
-/// A transcript that could not be parsed during indexing. Surfaced instead of
-/// being silently dropped, so a source that fails to parse is diagnosable.
+/// A source or record problem surfaced during indexing instead of being
+/// silently dropped. Structured adapter warning fields are preserved when known.
 public struct IndexWarning: Sendable, Equatable {
     public var path: String
     public var message: String
+    public var sourceTool: SourceTool?
+    public var recordID: String?
+    public var code: SourceWarningCode?
 
-    public init(path: String, message: String) {
+    public init(
+        path: String,
+        message: String,
+        sourceTool: SourceTool? = nil,
+        recordID: String? = nil,
+        code: SourceWarningCode? = nil
+    ) {
         self.path = path
         self.message = message
+        self.sourceTool = sourceTool
+        self.recordID = recordID
+        self.code = code
     }
 }
 
@@ -17,10 +29,19 @@ public struct IndexWarning: Sendable, Equatable {
 public struct IndexResult: Sendable {
     public var unlocks: [AchievementUnlock]
     public var warnings: [IndexWarning]
+    public var changedRecordCount: Int
+    public var sourceStatuses: [ConversationSourceStatus]
 
-    public init(unlocks: [AchievementUnlock], warnings: [IndexWarning]) {
+    public init(
+        unlocks: [AchievementUnlock],
+        warnings: [IndexWarning],
+        changedRecordCount: Int = 0,
+        sourceStatuses: [ConversationSourceStatus] = []
+    ) {
         self.unlocks = unlocks
         self.warnings = warnings
+        self.changedRecordCount = changedRecordCount
+        self.sourceStatuses = sourceStatuses
     }
 }
 
@@ -35,26 +56,48 @@ public enum Indexer {
         var unlockedIDs = try store.unlockedAchievementIDs()
         var allUnlocks: [AchievementUnlock] = []
         var warnings: [IndexWarning] = []
+        var changedRecordCount = 0
+        var sourceStatuses: [ConversationSourceStatus] = []
 
         for adapter in adapters {
             let inventory: SourceInventory
             do {
                 inventory = try adapter.discover()
             } catch {
-                warnings.append(IndexWarning(path: adapter.displayName, message: String(describing: error)))
+                warnings.append(IndexWarning(
+                    path: adapter.displayName,
+                    message: String(describing: error),
+                    sourceTool: adapter.sourceTool
+                ))
+                sourceStatuses.append(ConversationSourceStatus(
+                    sourceTool: adapter.sourceTool,
+                    displayName: adapter.displayName,
+                    state: .needsAttention,
+                    recordCount: 0,
+                    warningCount: 1
+                ))
                 continue
             }
 
+            let warningStartCount = warnings.count
             warnings.append(contentsOf: inventory.warnings.map { warning in
                 let path = inventory.records.first { $0.stableID == warning.recordID }?.displayPath
                     ?? warning.recordID
                     ?? adapter.displayName
-                return IndexWarning(path: path, message: warning.message)
+                return IndexWarning(
+                    path: path,
+                    message: warning.message,
+                    sourceTool: warning.sourceTool,
+                    recordID: warning.recordID,
+                    code: warning.code
+                )
             })
 
             var seenRecordIDs = Set<String>()
+            var canReconcileMissingRecords = inventory.isComplete && inventory.warnings.isEmpty
             for record in inventory.records {
                 guard record.sourceTool == adapter.sourceTool else {
+                    canReconcileMissingRecords = false
                     warnings.append(IndexWarning(
                         path: record.displayPath,
                         message: "Adapter returned a record for \(record.sourceTool.rawValue)"
@@ -62,6 +105,7 @@ public enum Indexer {
                     continue
                 }
                 guard seenRecordIDs.insert(record.stableID).inserted else {
+                    canReconcileMissingRecords = false
                     warnings.append(IndexWarning(path: record.displayPath, message: "Duplicate source record identity"))
                     continue
                 }
@@ -77,12 +121,18 @@ public enum Indexer {
                 let hasCompleteUnchangedState = knownRecord?.fingerprint == record.fingerprint
                     && !(knownRecord?.threadID.isEmpty ?? true)
                 guard !hasCompleteUnchangedState else { continue }
+                changedRecordCount += 1
 
                 let parsed: ParsedTranscript
                 do {
                     parsed = try adapter.parse(record)
                 } catch {
-                    warnings.append(IndexWarning(path: record.displayPath, message: String(describing: error)))
+                    warnings.append(IndexWarning(
+                        path: record.displayPath,
+                        message: String(describing: error),
+                        sourceTool: adapter.sourceTool,
+                        recordID: record.stableID
+                    ))
                     continue
                 }
 
@@ -109,75 +159,31 @@ public enum Indexer {
                 )
             }
 
-            try store.reconcileMissingSourceRecords(
+            if canReconcileMissingRecords {
+                try store.reconcileMissingSourceRecords(
+                    sourceTool: adapter.sourceTool,
+                    seenRecordIDs: seenRecordIDs,
+                    scanID: scanID
+                )
+            }
+            let adapterWarningCount = warnings.count - warningStartCount
+            sourceStatuses.append(ConversationSourceStatus(
                 sourceTool: adapter.sourceTool,
-                seenRecordIDs: seenRecordIDs,
-                scanID: scanID
-            )
+                displayName: adapter.displayName,
+                state: adapterWarningCount > 0
+                    ? .needsAttention
+                    : (inventory.records.isEmpty ? .empty : .connected),
+                recordCount: inventory.records.count,
+                warningCount: adapterWarningCount
+            ))
         }
 
-        return IndexResult(unlocks: allUnlocks, warnings: warnings)
+        return IndexResult(
+            unlocks: allUnlocks,
+            warnings: warnings,
+            changedRecordCount: changedRecordCount,
+            sourceStatuses: sourceStatuses
+        )
     }
 
-    @discardableResult
-    public static func index(paths: [URL], contractsURL: URL, storePath: String) throws -> IndexResult {
-        let contracts = try AchievementContractLoader.load(jsonlURL: contractsURL)
-        return try index(paths: paths, contracts: contracts, storePath: storePath)
-    }
-
-    @discardableResult
-    public static func index(paths: [URL], contracts: [AchievementContract], storePath: String) throws -> IndexResult {
-        let store = try SQLiteStore(path: storePath)
-        return try index(paths: paths, contracts: contracts, store: store)
-    }
-
-    @discardableResult
-    public static func index(paths: [URL], contracts: [AchievementContract], store: SQLiteStore) throws -> IndexResult {
-        var unlockedIDs = try store.unlockedAchievementIDs()
-        var allUnlocks: [AchievementUnlock] = []
-        var warnings: [IndexWarning] = []
-
-        for path in paths where path.pathExtension == "jsonl" {
-            let remainingContracts = contracts.filter { $0.active && $0.status == "keep" && !unlockedIDs.contains($0.id) }
-            guard !remainingContracts.isEmpty else { break }
-
-            let parsed: ParsedTranscript
-            do {
-                parsed = try parseTranscript(at: path)
-            } catch {
-                // One bad file should not abort the scan, but it must not vanish
-                // silently either.
-                warnings.append(IndexWarning(path: path.path, message: String(describing: error)))
-                continue
-            }
-
-            try store.upsert(thread: parsed.thread)
-            let events = EventExtractor.extract(from: parsed)
-            let unlocks = AchievementEngine.evaluate(contracts: remainingContracts, parsed: parsed, events: events, existingUnlockedIDs: unlockedIDs)
-            for unlock in unlocks {
-                try store.insert(unlock: unlock)
-                unlockedIDs.insert(unlock.achievementID)
-            }
-            allUnlocks.append(contentsOf: unlocks)
-        }
-
-        return IndexResult(unlocks: allUnlocks, warnings: warnings)
-    }
-
-    private static func parseTranscript(at path: URL) throws -> ParsedTranscript {
-        if path.path.contains("/.claude/projects/") {
-            return try ClaudeCodeParser.parse(fileURL: path)
-        }
-        if path.path.contains("/.codex/") || path.lastPathComponent.hasPrefix("rollout-") {
-            return try CodexParser.parse(fileURL: path)
-        }
-        // Sniff only the first bytes rather than reading the whole file twice.
-        let handle = try FileHandle(forReadingFrom: path)
-        defer { try? handle.close() }
-        let preview = String(decoding: try handle.read(upToCount: 512) ?? Data(), as: UTF8.self)
-        if preview.contains("\"session_meta\"") || preview.contains("\"response_item\"") {
-            return try CodexParser.parse(fileURL: path)
-        }
-        return try ClaudeCodeParser.parse(fileURL: path)
-    }
 }

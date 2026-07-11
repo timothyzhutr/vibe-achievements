@@ -3,19 +3,24 @@ import XCTest
 import VibeAchievementsCore
 
 final class AppStateTests: XCTestCase {
-    func testFailedParseFilesAreNotFingerprintRecorded() {
-        let warnings = [IndexWarning(path: "/tmp/bad.jsonl", message: "bad json")]
-
-        XCTAssertFalse(AppState.shouldRecordFingerprint(for: "/tmp/bad.jsonl", warnings: warnings))
-        XCTAssertTrue(AppState.shouldRecordFingerprint(for: "/tmp/good.jsonl", warnings: warnings))
-    }
-
     func testFingerprintIncludesDetectorVersion() throws {
         let url = URL(fileURLWithPath: NSTemporaryDirectory() + UUID().uuidString + ".jsonl")
         try "hello".write(to: url, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
 
-        XCTAssertTrue(AppState.fingerprint(for: url).hasPrefix(AppState.detectorFingerprintVersion + "-"))
+        XCTAssertTrue(SourceFileFingerprint.make(for: url, detectorVersion: AppState.detectorFingerprintVersion).hasPrefix(AppState.detectorFingerprintVersion + "-"))
+    }
+
+    func testSourceSummaryIncludesEverySourceStatus() {
+        let statuses = [
+            ConversationSourceStatus(sourceTool: .claudeCode, displayName: "Claude Code", state: .connected, recordCount: 3, warningCount: 0),
+            ConversationSourceStatus(sourceTool: .codex, displayName: "Codex", state: .unavailable, recordCount: 0, warningCount: 0)
+        ]
+
+        let summary = AppState.sourceSummary(for: statuses)
+
+        XCTAssertTrue(summary.contains("Claude Code: 3 conversations"))
+        XCTAssertTrue(summary.contains("Codex: unavailable"))
     }
 
     func testNotificationStateIsMarkedOnlyWhenNotificationsCanSchedule() {

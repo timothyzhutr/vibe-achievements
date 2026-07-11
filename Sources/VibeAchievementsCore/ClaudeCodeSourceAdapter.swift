@@ -14,7 +14,7 @@ public struct ClaudeCodeSourceAdapter: ConversationSourceAdapter {
 
     public func discover() throws -> SourceInventory {
         SourceInventory(
-            records: records(in: SourceDiscovery.jsonlFiles(in: projectsRoot)),
+            records: records(in: try SourceDiscovery.jsonlFiles(in: projectsRoot)),
             warnings: [],
             detectedRoots: [projectsRoot]
         )

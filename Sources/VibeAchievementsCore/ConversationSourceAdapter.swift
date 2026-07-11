@@ -37,11 +37,18 @@ public struct SourceInventory: Sendable {
     public let records: [ConversationSourceRecord]
     public let warnings: [SourceWarning]
     public let detectedRoots: [URL]
+    public let isComplete: Bool
 
-    public init(records: [ConversationSourceRecord], warnings: [SourceWarning], detectedRoots: [URL]) {
+    public init(
+        records: [ConversationSourceRecord],
+        warnings: [SourceWarning],
+        detectedRoots: [URL],
+        isComplete: Bool = true
+    ) {
         self.records = records
         self.warnings = warnings
         self.detectedRoots = detectedRoots
+        self.isComplete = isComplete
     }
 }
 

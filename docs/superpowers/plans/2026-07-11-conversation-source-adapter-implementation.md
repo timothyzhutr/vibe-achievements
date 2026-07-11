@@ -8,6 +8,8 @@
 
 **Tech Stack:** Swift 6, Foundation, SQLite3, XCTest, macOS UserDefaults.
 
+**Status:** Implemented on `codex/conversation-source-adapters` (2026-07-11).
+
 ---
 
 ### Task 1: Define Adapter And Record Types

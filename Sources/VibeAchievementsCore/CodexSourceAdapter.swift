@@ -16,7 +16,9 @@ public struct CodexSourceAdapter: ConversationSourceAdapter {
 
     public func discover() throws -> SourceInventory {
         let roots = [sessionsRoot, archivedSessionsRoot].compactMap { $0 }
-        let files = roots.flatMap(SourceDiscovery.jsonlFiles(in:)).sorted { $0.path < $1.path }
+        let liveFiles = try sessionsRoot.map { try SourceDiscovery.jsonlFiles(in: $0) } ?? []
+        let archivedFiles = try archivedSessionsRoot.map { try SourceDiscovery.jsonlFiles(in: $0) } ?? []
+        let files = liveFiles + archivedFiles
         var seen = Set<String>()
         var records: [ConversationSourceRecord] = []
         var warnings: [SourceWarning] = []

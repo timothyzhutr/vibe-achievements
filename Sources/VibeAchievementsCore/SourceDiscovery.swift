@@ -31,6 +31,11 @@ public struct SourceConfiguration: Equatable, Sendable {
     }
 }
 
+public enum SourceDiscoveryError: Error, Equatable, Sendable {
+    case unavailable(path: String)
+    case enumerationFailed(path: String, message: String)
+}
+
 public enum SourceDiscovery {
     public static func discover(
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
@@ -50,40 +55,41 @@ public enum SourceDiscovery {
         )
     }
 
-    public static func transcriptPaths(in locations: SourceLocations) -> [URL] {
-        let roots = [
-            locations.claudeProjects,
-            locations.codexSessions,
-            locations.codexArchivedSessions
-        ].compactMap { $0 }
-
-        return roots
-            .flatMap(jsonlFiles(in:))
-            .sorted { $0.path < $1.path }
-    }
-
     private static func exists(_ url: URL) -> Bool {
         FileManager.default.fileExists(atPath: url.path)
     }
 
-    static func jsonlFiles(in root: URL) -> [URL] {
+    static func jsonlFiles(in root: URL) throws -> [URL] {
+        var enumerationError: Error?
         guard let enumerator = FileManager.default.enumerator(
             at: root,
             includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
+            options: [.skipsHiddenFiles],
+            errorHandler: { _, error in
+                enumerationError = error
+                return false
+            }
         ) else {
-            return []
+            throw SourceDiscoveryError.unavailable(path: root.path)
         }
 
-        return enumerator.compactMap { item in
-            guard let url = item as? URL,
-                  url.pathExtension == "jsonl",
-                  ((try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) ?? false)
-            else {
-                return nil
+        var files: [URL] = []
+        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
+            do {
+                if try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true {
+                    files.append(url)
+                }
+            } catch {
+                throw SourceDiscoveryError.enumerationFailed(path: url.path, message: String(describing: error))
             }
-            return url
         }
+        if let enumerationError {
+            throw SourceDiscoveryError.enumerationFailed(
+                path: root.path,
+                message: String(describing: enumerationError)
+            )
+        }
+        return files.sorted { $0.path < $1.path }
     }
 }
 

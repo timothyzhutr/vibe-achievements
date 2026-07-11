@@ -177,4 +177,64 @@ final class SQLiteStoreTests: XCTestCase {
         XCTAssertEqual(state.lastSeenScanID, "scan-1")
         XCTAssertEqual(state.missingScanCount, 0)
     }
+
+    func testReconciliationKeepsThreadReferencedByAnotherSourceRecord() throws {
+        let store = try SQLiteStore(path: NSTemporaryDirectory() + UUID().uuidString + ".sqlite")
+        let thread = NormalizedThread(
+            id: "claude_code:shared",
+            sourceTool: .claudeCode,
+            sourceThreadID: "shared",
+            sourcePath: "/tmp/shared.jsonl",
+            projectPath: nil,
+            projectKey: "unknown-project",
+            title: nil,
+            createdAt: nil,
+            updatedAt: nil,
+            messageCount: 0,
+            userTurnCount: 0,
+            assistantTurnCount: 0,
+            estimatedTokens: 0,
+            rawTokenCount: nil
+        )
+        try store.upsert(thread: thread)
+        for id in ["old-name", "new-name"] {
+            try store.recordSourceRecord(
+                record: ConversationSourceRecord(
+                    sourceTool: .claudeCode,
+                    stableID: id,
+                    displayPath: "/tmp/\(id).jsonl",
+                    locator: .file(URL(fileURLWithPath: "/tmp/\(id).jsonl")),
+                    fingerprint: "fp"
+                ),
+                threadID: thread.id,
+                scanID: "scan-1"
+            )
+        }
+
+        try store.reconcileMissingSourceRecords(sourceTool: .claudeCode, seenRecordIDs: ["new-name"], scanID: "scan-2")
+        try store.reconcileMissingSourceRecords(sourceTool: .claudeCode, seenRecordIDs: ["new-name"], scanID: "scan-3")
+
+        XCTAssertTrue(try store.threadExists(id: thread.id))
+        XCTAssertNil(try store.sourceRecord(identity: SourceRecordIdentity(sourceTool: .claudeCode, stableID: "old-name")))
+        XCTAssertNotNil(try store.sourceRecord(identity: SourceRecordIdentity(sourceTool: .claudeCode, stableID: "new-name")))
+    }
+
+    func testMigratedLegacyRecordDoesNotReappearAfterReconciliationAndReopen() throws {
+        let path = NSTemporaryDirectory() + UUID().uuidString + ".sqlite"
+        let store = try SQLiteStore(path: path)
+        try store.recordFileFingerprint(
+            path: "/tmp/.claude/projects/project/retired.jsonl",
+            fingerprint: "legacy-fp"
+        )
+        let migrated = try SQLiteStore(path: path)
+        let identity = SourceRecordIdentity(sourceTool: .claudeCode, stableID: "retired")
+        XCTAssertNotNil(try migrated.sourceRecord(identity: identity))
+
+        try migrated.reconcileMissingSourceRecords(sourceTool: .claudeCode, seenRecordIDs: [], scanID: "scan-1")
+        try migrated.reconcileMissingSourceRecords(sourceTool: .claudeCode, seenRecordIDs: [], scanID: "scan-2")
+        XCTAssertNil(try migrated.sourceRecord(identity: identity))
+
+        let reopened = try SQLiteStore(path: path)
+        XCTAssertNil(try reopened.sourceRecord(identity: identity))
+    }
 }

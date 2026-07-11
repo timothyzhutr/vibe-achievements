@@ -135,9 +135,9 @@ public final class SQLiteStore {
         }
     }
 
-    /// Persisted per-file fingerprints (path -> fingerprint) so that only new or
-    /// changed transcripts are re-parsed across app launches.
-    public func knownFileFingerprints() throws -> [String: String] {
+    /// Legacy path fingerprints retained only long enough to seed typed source
+    /// records during migration from pre-adapter databases.
+    func knownFileFingerprints() throws -> [String: String] {
         var statement: OpaquePointer?
         let sql = "SELECT path, fingerprint FROM source_files;"
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { throw StoreError.prepareFailed }
@@ -150,7 +150,7 @@ public final class SQLiteStore {
         return fingerprints
     }
 
-    public func recordFileFingerprint(path: String, fingerprint: String) throws {
+    func recordFileFingerprint(path: String, fingerprint: String) throws {
         try execute(
             "INSERT OR REPLACE INTO source_files (path, fingerprint) VALUES (?, ?);",
             [path, fingerprint]
@@ -223,13 +223,13 @@ public final class SQLiteStore {
             guard state.lastSeenScanID != scanID, state.lastMissingScanID != scanID else { continue }
             let nextMissingCount = state.missingScanCount + 1
             if nextMissingCount >= 2 {
-                if !state.threadID.isEmpty {
-                    try execute("DELETE FROM threads WHERE id = ?;", [state.threadID])
-                }
                 try execute(
                     "DELETE FROM source_records WHERE source_tool = ? AND record_id = ?;",
                     [sourceTool.rawValue, state.identity.stableID]
                 )
+                if !state.threadID.isEmpty, try sourceRecordReferenceCount(threadID: state.threadID) == 0 {
+                    try execute("DELETE FROM threads WHERE id = ?;", [state.threadID])
+                }
             } else {
                 try execute("""
                 UPDATE source_records
@@ -403,6 +403,17 @@ public final class SQLiteStore {
         return records
     }
 
+    private func sourceRecordReferenceCount(threadID: String) throws -> Int {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM source_records WHERE thread_id = ?;", -1, &statement, nil) == SQLITE_OK else {
+            throw StoreError.prepareFailed
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, threadID, -1, SQLITE_TRANSIENT)
+        guard sqlite3_step(statement) == SQLITE_ROW else { throw StoreError.stepFailed }
+        return Int(sqlite3_column_int64(statement, 0))
+    }
+
     private func migrateRecognizedSourceFiles() throws {
         for (path, fingerprint) in try knownFileFingerprints() {
             let sourceTool: SourceTool?
@@ -420,6 +431,7 @@ public final class SQLiteStore {
             (source_tool, record_id, fingerprint, display_path, thread_id, last_seen_scan_id, missing_scan_count, last_missing_scan_id)
             VALUES (?, ?, ?, ?, '', 'legacy-migration', 0, '');
             """, [sourceTool.rawValue, recordID, fingerprint, path])
+            try execute("DELETE FROM source_files WHERE path = ?;", [path])
         }
     }
 

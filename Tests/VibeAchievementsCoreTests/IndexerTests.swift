@@ -22,6 +22,8 @@ final class IndexerTests: XCTestCase {
         let retried = try Indexer.index(adapters: [adapter], contracts: [], store: store, scanID: "scan-2")
 
         XCTAssertEqual(failed.warnings.count, 1)
+        XCTAssertEqual(failed.warnings.first?.sourceTool, .claudeCode)
+        XCTAssertEqual(failed.warnings.first?.recordID, "retry")
         XCTAssertTrue(retried.warnings.isEmpty)
         XCTAssertEqual(adapter.parseCount, 2)
     }
@@ -72,6 +74,54 @@ final class IndexerTests: XCTestCase {
         )
     }
 
+    func testIncompleteInventoryNeverAdvancesMissingRecordDeletion() throws {
+        let store = try makeStore()
+        let adapter = StubAdapter(records: [record(id: "safe", fingerprint: "fp")])
+        _ = try Indexer.index(adapters: [adapter], contracts: [], store: store, scanID: "scan-1")
+
+        adapter.records = []
+        adapter.warnings = [SourceWarning(
+            sourceTool: .claudeCode,
+            code: .sourceBusy,
+            message: "Source is busy"
+        )]
+        let second = try Indexer.index(adapters: [adapter], contracts: [], store: store, scanID: "scan-2")
+        _ = try Indexer.index(adapters: [adapter], contracts: [], store: store, scanID: "scan-3")
+
+        XCTAssertTrue(try store.threadExists(id: "claude_code:safe"))
+        XCTAssertEqual(second.sourceStatuses.first?.state, .needsAttention)
+    }
+
+    func testExplicitlyPartialInventoryNeverAdvancesMissingRecordDeletion() throws {
+        let store = try makeStore()
+        let adapter = StubAdapter(records: [record(id: "safe", fingerprint: "fp")])
+        _ = try Indexer.index(adapters: [adapter], contracts: [], store: store, scanID: "scan-1")
+
+        adapter.records = []
+        adapter.isComplete = false
+        _ = try Indexer.index(adapters: [adapter], contracts: [], store: store, scanID: "scan-2")
+        _ = try Indexer.index(adapters: [adapter], contracts: [], store: store, scanID: "scan-3")
+
+        XCTAssertTrue(try store.threadExists(id: "claude_code:safe"))
+    }
+
+    func testStructuredSourceWarningFieldsArePreserved() throws {
+        let store = try makeStore()
+        let adapter = StubAdapter(records: [])
+        adapter.warnings = [SourceWarning(
+            sourceTool: .claudeCode,
+            recordID: "session",
+            code: .sourceBusy,
+            message: "Source is busy"
+        )]
+
+        let result = try Indexer.index(adapters: [adapter], contracts: [], store: store, scanID: "scan")
+
+        XCTAssertEqual(result.warnings.first?.sourceTool, .claudeCode)
+        XCTAssertEqual(result.warnings.first?.recordID, "session")
+        XCTAssertEqual(result.warnings.first?.code, .sourceBusy)
+    }
+
     private func makeStore() throws -> SQLiteStore {
         try SQLiteStore(path: NSTemporaryDirectory() + UUID().uuidString + ".sqlite")
     }
@@ -91,6 +141,8 @@ private final class StubAdapter: ConversationSourceAdapter, @unchecked Sendable 
     let sourceTool: SourceTool
     let displayName: String
     var records: [ConversationSourceRecord]
+    var warnings: [SourceWarning] = []
+    var isComplete = true
     var discoveryError: Error?
     var parseError: Error?
     private(set) var parseCount = 0
@@ -103,7 +155,7 @@ private final class StubAdapter: ConversationSourceAdapter, @unchecked Sendable 
 
     func discover() throws -> SourceInventory {
         if let discoveryError { throw discoveryError }
-        return SourceInventory(records: records, warnings: [], detectedRoots: [])
+        return SourceInventory(records: records, warnings: warnings, detectedRoots: [], isComplete: isComplete)
     }
 
     func parse(_ record: ConversationSourceRecord) throws -> ParsedTranscript {

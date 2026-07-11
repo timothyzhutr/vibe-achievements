@@ -103,16 +103,13 @@ extension AppState {
     nonisolated static let detectorFingerprintVersion = "detectors-v3"
 
     nonisolated private static func performScan(storePath: String, sourceConfiguration: SourceConfiguration, notify: Bool) async -> ScanResult {
-        let locations = SourceDiscovery.discover(configuration: sourceConfiguration)
-        var parts: [String] = []
-        if locations.claudeProjects != nil { parts.append("Claude Code") }
-        if locations.codexSessions != nil || locations.codexArchivedSessions != nil { parts.append("Codex") }
-        let sourceLabel = parts.isEmpty ? "No sources detected" : "Detected: " + parts.joined(separator: ", ")
-
-        let transcriptPaths = SourceDiscovery.transcriptPaths(in: locations)
-        let sourceSummary = transcriptPaths.isEmpty
-            ? sourceLabel
-            : "\(sourceLabel) · \(transcriptPaths.count) transcript files"
+        let registrations = ConversationSourceRegistry.registrations(
+            configuration: sourceConfiguration,
+            detectorVersion: detectorFingerprintVersion
+        )
+        let unavailableStatuses = registrations.compactMap(\.unavailableStatus)
+        let failureStatuses = registrations.map(\.failureStatus)
+        let adapters = registrations.compactMap(\.adapter)
 
         do {
             try FileManager.default.createDirectory(
@@ -121,31 +118,16 @@ extension AppState {
             )
             let store = try SQLiteStore(path: storePath)
             let contracts = try AchievementContractLoader.loadBundledV1()
-            let knownFingerprints = try store.knownFileFingerprints()
-
-            var changed: [(url: URL, fingerprint: String)] = []
-            for path in transcriptPaths {
-                let fingerprint = fingerprint(for: path)
-                if knownFingerprints[path.path] != fingerprint {
-                    changed.append((path, fingerprint))
-                }
-            }
-
-            var newUnlockCount = 0
-            var warnings: [IndexWarning] = []
-            if !changed.isEmpty {
-                let result = try Indexer.index(paths: changed.map(\.url), contracts: contracts, store: store)
-                newUnlockCount = result.unlocks.count
-                warnings = result.warnings
-                // Record fingerprints even for files that produced no unlocks so
-                // they are not re-parsed until they actually change again. Files
-                // that failed to parse are deliberately retried on later scans.
-                for entry in changed {
-                    if shouldRecordFingerprint(for: entry.url.path, warnings: warnings) {
-                        try store.recordFileFingerprint(path: entry.url.path, fingerprint: entry.fingerprint)
-                    }
-                }
-            }
+            let indexResult = try Indexer.index(
+                adapters: adapters,
+                contracts: contracts,
+                store: store,
+                scanID: UUID().uuidString
+            )
+            let statusByTool = Dictionary(
+                uniqueKeysWithValues: (unavailableStatuses + indexResult.sourceStatuses).map { ($0.sourceTool, $0) }
+            )
+            let statuses = registrations.compactMap { statusByTool[$0.sourceTool] }
 
             // One banner per achievement, exactly once. Every unlock not yet
             // notified gets a banner here (oldest first), then is marked so it is
@@ -166,16 +148,19 @@ extension AppState {
 
             let recent = try store.allUnlocks()
             return ScanResult(
-                sourceSummary: sourceSummary,
-                lastScanSummary: scanSummary(changedFileCount: changed.count, newUnlockCount: newUnlockCount),
+                sourceSummary: sourceSummary(for: statuses),
+                lastScanSummary: scanSummary(
+                    changedFileCount: indexResult.changedRecordCount,
+                    newUnlockCount: indexResult.unlocks.count
+                ),
                 achievementContracts: contracts,
                 recentUnlocks: recent,
-                error: warningSummary(for: warnings)
+                error: warningSummary(for: indexResult.warnings)
             )
         } catch {
             let message = String(describing: error)
             return ScanResult(
-                sourceSummary: sourceSummary,
+                sourceSummary: sourceSummary(for: failureStatuses),
                 lastScanSummary: "Scan failed",
                 achievementContracts: [],
                 recentUnlocks: nil,
@@ -184,16 +169,9 @@ extension AppState {
         }
     }
 
-    /// Cheap change-detection fingerprint: modification time plus size.
-    nonisolated static func fingerprint(for url: URL) -> String {
-        let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
-        let modified = values?.contentModificationDate?.timeIntervalSince1970 ?? 0
-        let size = values?.fileSize ?? 0
-        return "\(detectorFingerprintVersion)-\(modified)-\(size)"
-    }
-
-    nonisolated static func shouldRecordFingerprint(for path: String, warnings: [IndexWarning]) -> Bool {
-        !warnings.contains { $0.path == path }
+    nonisolated static func sourceSummary(for statuses: [ConversationSourceStatus]) -> String {
+        guard !statuses.isEmpty else { return "No sources enabled" }
+        return statuses.map(\.summary).joined(separator: " · ")
     }
 
     nonisolated static func shouldMarkNotificationsDelivered(notify: Bool, notificationsAvailable: Bool, pendingCount: Int) -> Bool {
@@ -206,14 +184,14 @@ extension AppState {
         guard !warnings.isEmpty else { return nil }
         let names = warnings.prefix(3).map { URL(fileURLWithPath: $0.path).lastPathComponent }
         let suffix = warnings.count > 3 ? ", …" : ""
-        return "Skipped \(warnings.count) unreadable file\(warnings.count == 1 ? "" : "s"): \(names.joined(separator: ", "))\(suffix)"
+        return "\(warnings.count) source warning\(warnings.count == 1 ? "" : "s"): \(names.joined(separator: ", "))\(suffix)"
     }
 
     nonisolated private static func scanSummary(changedFileCount: Int, newUnlockCount: Int) -> String {
         if changedFileCount == 0 {
             return "No transcript changes"
         }
-        let files = "\(changedFileCount) changed file\(changedFileCount == 1 ? "" : "s")"
+        let files = "\(changedFileCount) changed conversation\(changedFileCount == 1 ? "" : "s")"
         if newUnlockCount == 0 {
             return "Scanned \(files) · no new achievements"
         }

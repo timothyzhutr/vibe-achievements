@@ -32,31 +32,28 @@ on your machine.
 ## How it works
 
 ```
- ~/.claude/projects/**/*.jsonl        SourceDiscovery
- ~/.codex/sessions/**/*.jsonl   ─────►  (find transcript files)
-                                            │
-                                            ▼
-                              ClaudeCodeParser / CodexParser
-                                   (normalize threads+messages)
-                                            │
-                                            ▼
-                                    SQLiteStore (upsert)
-                                            │
-                                            ▼
-                                     EventExtractor
-                               (keyword / metadata signals)
-                                            │
-                                            ▼
-                                   AchievementEngine
-                          (rule table + global once-per-user unlocks)
-                                            │
-                                            ▼
-                          SQLite unlocks ──► notifications + shelf
+ Source settings ──► ConversationSourceRegistry
+                              │
+                              ▼
+                 ClaudeCode / Codex adapters
+                  (discover + fingerprint records)
+                              │
+                              ▼
+                     Incremental Indexer
+                (parse changed records + persist)
+                              │
+                              ▼
+             EventExtractor ──► AchievementEngine
+                              │
+                              ▼
+                 SQLite unlocks ──► notifications + shelf
 ```
 
-Change detection is persisted (a file fingerprint of mtime+size), so only new or
-changed transcripts are re-parsed across launches. Indexing runs off the main
-thread; the UI never blocks on a scan.
+Change detection is persisted by typed source identity in `source_records`, so
+only new or changed conversations are re-parsed across launches. Failed records
+are retried, one unavailable source does not block another, and derived local
+threads are removed only after two complete scans where the source record is
+absent. Indexing runs off the main thread; the UI never blocks on a scan.
 
 ### Validated local sources
 
@@ -151,7 +148,12 @@ Package.swift
 Sources/
   VibeAchievementsCore/         # testable core (no UI)
     Models.swift                # normalized thread/message model
-    SourceDiscovery.swift       # find transcript folders + files
+    ConversationSourceAdapter.swift  # shared source/record contract
+    ConversationSourceRegistry.swift # build enabled adapters from settings
+    SourceDiscovery.swift       # resolve default and overridden roots
+    ClaudeCodeSourceAdapter.swift
+    CodexSourceAdapter.swift
+    ReadOnlySQLiteSnapshot.swift # safe helper for future DB-backed adapters
     ClaudeCodeParser.swift      # Claude Code JSONL parser
     CodexParser.swift           # Codex JSONL parser
     TextContent.swift           # shared content extraction
