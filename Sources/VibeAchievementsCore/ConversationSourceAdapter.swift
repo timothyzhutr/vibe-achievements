@@ -82,5 +82,5 @@ public protocol ConversationSourceAdapter: Sendable {
     var displayName: String { get }
 
     func discover() throws -> SourceInventory
-    func parse(record: ConversationSourceRecord) throws -> ParsedTranscript
+    func parse(_ record: ConversationSourceRecord) throws -> ParsedTranscript
 }
