@@ -1,6 +1,6 @@
 import Foundation
 
-public enum SourceTool: String, Codable, Sendable {
+public enum SourceTool: String, Codable, CaseIterable, Hashable, Sendable {
     case claudeCode = "claude_code"
     case codex = "codex"
 }
