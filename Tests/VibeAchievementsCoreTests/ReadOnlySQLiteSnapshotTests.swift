@@ -19,6 +19,28 @@ final class ReadOnlySQLiteSnapshotTests: XCTestCase {
         XCTAssertEqual(rows, [["created-before-wal-row"], ["committed-in-wal"]])
     }
 
+    func testEscapedTransactionIsRejectedAfterReadScopeEnds() throws {
+        let fixture = try WALFixture()
+        defer { fixture.remove() }
+        var snapshot: ReadOnlySQLiteSnapshot? = try ReadOnlySQLiteSnapshot(sourceURL: fixture.databaseURL)
+        var escapedTransaction: ReadOnlySQLiteSnapshot.ReadTransaction?
+
+        try XCTUnwrap(snapshot).withReadTransaction { transaction in
+            escapedTransaction = transaction
+            XCTAssertEqual(
+                try transaction.stringRows(sql: "SELECT body FROM messages ORDER BY rowid;"),
+                [["created-before-wal-row"]]
+            )
+        }
+        snapshot = nil
+
+        XCTAssertThrowsError(
+            try XCTUnwrap(escapedTransaction).stringRows(sql: "SELECT body FROM messages;")
+        ) { error in
+            XCTAssertEqual(error as? ReadOnlySQLiteSnapshot.Error, .transactionEnded)
+        }
+    }
+
     func testQueryOnlyConnectionDeniesWrites() throws {
         let fixture = try WALFixture()
         defer { fixture.remove() }

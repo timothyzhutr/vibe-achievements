@@ -7,16 +7,22 @@ public final class ReadOnlySQLiteSnapshot {
         case prepareFailed
         case stepFailed
         case busy
+        case transactionEnded
     }
 
     public final class ReadTransaction {
-        private let database: OpaquePointer
+        private let lock = NSLock()
+        private var database: OpaquePointer?
 
         fileprivate init(database: OpaquePointer) {
             self.database = database
         }
 
         public func stringRows(sql: String) throws -> [[String?]] {
+            lock.lock()
+            defer { lock.unlock() }
+            guard let database else { throw Error.transactionEnded }
+
             var statement: OpaquePointer?
             let prepareResult = sqlite3_prepare_v2(database, sql, -1, &statement, nil)
             guard prepareResult == SQLITE_OK else {
@@ -36,6 +42,12 @@ public final class ReadOnlySQLiteSnapshot {
                     throw ReadOnlySQLiteSnapshot.mappedError(stepResult, fallback: .stepFailed)
                 }
             }
+        }
+
+        fileprivate func invalidate() {
+            lock.lock()
+            database = nil
+            lock.unlock()
         }
 
         private static func stringRow(from statement: OpaquePointer?) -> [String?] {
@@ -93,15 +105,20 @@ public final class ReadOnlySQLiteSnapshot {
     ) throws -> Result {
         guard let database else { throw Error.openFailed }
         try Self.executeControl("BEGIN DEFERRED;", on: database)
+        let transaction = ReadTransaction(database: database)
 
+        let result: Result
         do {
-            let result = try body(ReadTransaction(database: database))
-            try Self.executeControl("ROLLBACK;", on: database)
-            return result
+            result = try body(transaction)
         } catch {
+            transaction.invalidate()
             try? Self.executeControl("ROLLBACK;", on: database)
             throw error
         }
+
+        transaction.invalidate()
+        try Self.executeControl("ROLLBACK;", on: database)
+        return result
     }
 
     private static func backUp(sourceURL: URL, destinationURL: URL) throws {
