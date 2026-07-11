@@ -95,14 +95,17 @@ CREATE TABLE source_records (
   record_id TEXT NOT NULL,
   fingerprint TEXT NOT NULL,
   display_path TEXT NOT NULL,
+  thread_id TEXT NOT NULL,
   last_seen_scan_id TEXT NOT NULL,
   PRIMARY KEY (source_tool, record_id)
 );
 ```
 
-The existing `source_files` rows migrate to source records using their path as
-the record ID. A detector-version prefix invalidates all relevant fingerprints
-when normalized behavior changes.
+The existing `source_files` rows migrate by recognizing the existing Claude and
+Codex path families, using the path as record ID and the already-normalized
+thread ID when available. Unrecognized development rows are left behind until
+the old table is retired. A detector-version prefix invalidates all relevant
+fingerprints when normalized behavior changes.
 
 ## Indexing Flow
 
@@ -177,4 +180,3 @@ An adapter may be:
 2. Add Cursor, which is locally available for real validation.
 3. Add Antigravity, gated by a current transcript fixture.
 4. Add OpenCode, gated by current SQLite and legacy fixture coverage.
-
