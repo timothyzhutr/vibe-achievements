@@ -84,3 +84,7 @@ public protocol ConversationSourceAdapter: Sendable {
     func discover() throws -> SourceInventory
     func parse(_ record: ConversationSourceRecord) throws -> ParsedTranscript
 }
+
+public enum ConversationSourceAdapterError: Error, Equatable {
+    case invalidRecord
+}

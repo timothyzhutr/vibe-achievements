@@ -66,7 +66,7 @@ public enum SourceDiscovery {
         FileManager.default.fileExists(atPath: url.path)
     }
 
-    private static func jsonlFiles(in root: URL) -> [URL] {
+    static func jsonlFiles(in root: URL) -> [URL] {
         guard let enumerator = FileManager.default.enumerator(
             at: root,
             includingPropertiesForKeys: [.isRegularFileKey],
@@ -84,5 +84,14 @@ public enum SourceDiscovery {
             }
             return url
         }
+    }
+}
+
+public enum SourceFileFingerprint {
+    public static func make(for url: URL, detectorVersion: String) -> String {
+        let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+        let modified = values?.contentModificationDate?.timeIntervalSince1970 ?? 0
+        let size = values?.fileSize ?? 0
+        return "\(detectorVersion)-\(modified)-\(size)"
     }
 }
