@@ -1,6 +1,15 @@
 import Foundation
 import SQLite3
 
+public struct SourceRecordState: Equatable, Sendable {
+    public let identity: SourceRecordIdentity
+    public let fingerprint: String
+    public let displayPath: String
+    public let threadID: String
+    public let lastSeenScanID: String
+    public let missingScanCount: Int
+}
+
 public final class SQLiteStore {
     private var db: OpaquePointer?
 
@@ -148,6 +157,99 @@ public final class SQLiteStore {
         )
     }
 
+    public func sourceRecord(identity: SourceRecordIdentity) throws -> SourceRecordState? {
+        let sql = """
+        SELECT fingerprint, display_path, thread_id, last_seen_scan_id, missing_scan_count
+        FROM source_records
+        WHERE source_tool = ? AND record_id = ?;
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { throw StoreError.prepareFailed }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, identity.sourceTool.rawValue, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(statement, 2, identity.stableID, -1, SQLITE_TRANSIENT)
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return SourceRecordState(
+            identity: identity,
+            fingerprint: columnString(statement, 0),
+            displayPath: columnString(statement, 1),
+            threadID: columnString(statement, 2),
+            lastSeenScanID: columnString(statement, 3),
+            missingScanCount: Int(sqlite3_column_int(statement, 4))
+        )
+    }
+
+    public func recordSourceRecord(
+        record: ConversationSourceRecord,
+        threadID: String,
+        scanID: String
+    ) throws {
+        try execute("""
+        INSERT INTO source_records
+        (source_tool, record_id, fingerprint, display_path, thread_id, last_seen_scan_id, missing_scan_count, last_missing_scan_id)
+        VALUES (?, ?, ?, ?, ?, ?, 0, '')
+        ON CONFLICT(source_tool, record_id) DO UPDATE SET
+            fingerprint = excluded.fingerprint,
+            display_path = excluded.display_path,
+            thread_id = excluded.thread_id,
+            last_seen_scan_id = excluded.last_seen_scan_id,
+            missing_scan_count = 0,
+            last_missing_scan_id = '';
+        """, [
+            record.sourceTool.rawValue,
+            record.stableID,
+            record.fingerprint,
+            record.displayPath,
+            threadID,
+            scanID
+        ])
+    }
+
+    public func markSourceRecordSeen(identity: SourceRecordIdentity, displayPath: String, scanID: String) throws {
+        try execute("""
+        UPDATE source_records
+        SET display_path = ?, last_seen_scan_id = ?, missing_scan_count = 0, last_missing_scan_id = ''
+        WHERE source_tool = ? AND record_id = ?;
+        """, [displayPath, scanID, identity.sourceTool.rawValue, identity.stableID])
+    }
+
+    public func reconcileMissingSourceRecords(
+        sourceTool: SourceTool,
+        seenRecordIDs: Set<String>,
+        scanID: String
+    ) throws {
+        let states = try sourceRecords(sourceTool: sourceTool)
+        for state in states where !seenRecordIDs.contains(state.identity.stableID) {
+            guard state.lastSeenScanID != scanID, state.lastMissingScanID != scanID else { continue }
+            let nextMissingCount = state.missingScanCount + 1
+            if nextMissingCount >= 2 {
+                if !state.threadID.isEmpty {
+                    try execute("DELETE FROM threads WHERE id = ?;", [state.threadID])
+                }
+                try execute(
+                    "DELETE FROM source_records WHERE source_tool = ? AND record_id = ?;",
+                    [sourceTool.rawValue, state.identity.stableID]
+                )
+            } else {
+                try execute("""
+                UPDATE source_records
+                SET missing_scan_count = ?, last_missing_scan_id = ?
+                WHERE source_tool = ? AND record_id = ?;
+                """, [nextMissingCount, scanID, sourceTool.rawValue, state.identity.stableID])
+            }
+        }
+    }
+
+    func threadExists(id: String) throws -> Bool {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT 1 FROM threads WHERE id = ? LIMIT 1;", -1, &statement, nil) == SQLITE_OK else {
+            throw StoreError.prepareFailed
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, id, -1, SQLITE_TRANSIENT)
+        return sqlite3_step(statement) == SQLITE_ROW
+    }
+
     /// Identities of unlocks already recorded, so re-indexing does not re-emit
     /// or re-notify them. Achievement identity is global by `achievement_id`.
     public func unlockedAchievementIDs() throws -> Set<String> {
@@ -226,6 +328,20 @@ public final class SQLiteStore {
             fingerprint TEXT NOT NULL
         );
         """, [])
+        try execute("""
+        CREATE TABLE IF NOT EXISTS source_records (
+            source_tool TEXT NOT NULL,
+            record_id TEXT NOT NULL,
+            fingerprint TEXT NOT NULL,
+            display_path TEXT NOT NULL,
+            thread_id TEXT NOT NULL,
+            last_seen_scan_id TEXT NOT NULL,
+            missing_scan_count INTEGER NOT NULL DEFAULT 0,
+            last_missing_scan_id TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (source_tool, record_id)
+        );
+        """, [])
+        try migrateRecognizedSourceFiles()
 
         // Additive: databases created before per-unlock notification tracking
         // lack notified_at. Their existing unlocks default to unnotified and get
@@ -262,6 +378,49 @@ public final class SQLiteStore {
         defer { sqlite3_finalize(statement) }
         guard sqlite3_step(statement) == SQLITE_ROW else { return 0 }
         return Int(sqlite3_column_int(statement, 0))
+    }
+
+    private func sourceRecords(sourceTool: SourceTool) throws -> [(identity: SourceRecordIdentity, threadID: String, lastSeenScanID: String, missingScanCount: Int, lastMissingScanID: String)] {
+        let sql = """
+        SELECT record_id, thread_id, last_seen_scan_id, missing_scan_count, last_missing_scan_id
+        FROM source_records WHERE source_tool = ?;
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { throw StoreError.prepareFailed }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, sourceTool.rawValue, -1, SQLITE_TRANSIENT)
+
+        var records: [(SourceRecordIdentity, String, String, Int, String)] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            records.append((
+                SourceRecordIdentity(sourceTool: sourceTool, stableID: columnString(statement, 0)),
+                columnString(statement, 1),
+                columnString(statement, 2),
+                Int(sqlite3_column_int(statement, 3)),
+                columnString(statement, 4)
+            ))
+        }
+        return records
+    }
+
+    private func migrateRecognizedSourceFiles() throws {
+        for (path, fingerprint) in try knownFileFingerprints() {
+            let sourceTool: SourceTool?
+            if path.contains("/.claude/projects/") {
+                sourceTool = .claudeCode
+            } else if path.contains("/.codex/") {
+                sourceTool = .codex
+            } else {
+                sourceTool = nil
+            }
+            guard let sourceTool else { continue }
+            let recordID = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+            try execute("""
+            INSERT OR IGNORE INTO source_records
+            (source_tool, record_id, fingerprint, display_path, thread_id, last_seen_scan_id, missing_scan_count, last_missing_scan_id)
+            VALUES (?, ?, ?, ?, '', 'legacy-migration', 0, '');
+            """, [sourceTool.rawValue, recordID, fingerprint, path])
+        }
     }
 
     private func iso(_ date: Date?) -> String {

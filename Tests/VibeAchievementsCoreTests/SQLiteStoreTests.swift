@@ -151,4 +151,30 @@ final class SQLiteStoreTests: XCTestCase {
         let reopened = try SQLiteStore(path: path)
         XCTAssertEqual(try reopened.knownFileFingerprints(), ["/tmp/a.jsonl": "fp-2"])
     }
+
+    func testSourceRecordStatePersistsAndUpdatesByTypedIdentity() throws {
+        let path = NSTemporaryDirectory() + UUID().uuidString + ".sqlite"
+        let store = try SQLiteStore(path: path)
+        let identity = SourceRecordIdentity(sourceTool: .claudeCode, stableID: "session")
+
+        XCTAssertNil(try store.sourceRecord(identity: identity))
+        try store.recordSourceRecord(
+            record: ConversationSourceRecord(
+                sourceTool: .claudeCode,
+                stableID: "session",
+                displayPath: "/tmp/session.jsonl",
+                locator: .file(URL(fileURLWithPath: "/tmp/session.jsonl")),
+                fingerprint: "fp-1"
+            ),
+            threadID: "claude_code:session",
+            scanID: "scan-1"
+        )
+
+        let reopened = try SQLiteStore(path: path)
+        let state = try XCTUnwrap(reopened.sourceRecord(identity: identity))
+        XCTAssertEqual(state.fingerprint, "fp-1")
+        XCTAssertEqual(state.threadID, "claude_code:session")
+        XCTAssertEqual(state.lastSeenScanID, "scan-1")
+        XCTAssertEqual(state.missingScanCount, 0)
+    }
 }

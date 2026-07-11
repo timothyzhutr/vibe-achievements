@@ -26,6 +26,100 @@ public struct IndexResult: Sendable {
 
 public enum Indexer {
     @discardableResult
+    public static func index(
+        adapters: [any ConversationSourceAdapter],
+        contracts: [AchievementContract],
+        store: SQLiteStore,
+        scanID: String
+    ) throws -> IndexResult {
+        var unlockedIDs = try store.unlockedAchievementIDs()
+        var allUnlocks: [AchievementUnlock] = []
+        var warnings: [IndexWarning] = []
+
+        for adapter in adapters {
+            let inventory: SourceInventory
+            do {
+                inventory = try adapter.discover()
+            } catch {
+                warnings.append(IndexWarning(path: adapter.displayName, message: String(describing: error)))
+                continue
+            }
+
+            warnings.append(contentsOf: inventory.warnings.map { warning in
+                let path = inventory.records.first { $0.stableID == warning.recordID }?.displayPath
+                    ?? warning.recordID
+                    ?? adapter.displayName
+                return IndexWarning(path: path, message: warning.message)
+            })
+
+            var seenRecordIDs = Set<String>()
+            for record in inventory.records {
+                guard record.sourceTool == adapter.sourceTool else {
+                    warnings.append(IndexWarning(
+                        path: record.displayPath,
+                        message: "Adapter returned a record for \(record.sourceTool.rawValue)"
+                    ))
+                    continue
+                }
+                guard seenRecordIDs.insert(record.stableID).inserted else {
+                    warnings.append(IndexWarning(path: record.displayPath, message: "Duplicate source record identity"))
+                    continue
+                }
+
+                let knownRecord = try store.sourceRecord(identity: record.identity)
+                if knownRecord != nil {
+                    try store.markSourceRecordSeen(
+                        identity: record.identity,
+                        displayPath: record.displayPath,
+                        scanID: scanID
+                    )
+                }
+                let hasCompleteUnchangedState = knownRecord?.fingerprint == record.fingerprint
+                    && !(knownRecord?.threadID.isEmpty ?? true)
+                guard !hasCompleteUnchangedState else { continue }
+
+                let parsed: ParsedTranscript
+                do {
+                    parsed = try adapter.parse(record)
+                } catch {
+                    warnings.append(IndexWarning(path: record.displayPath, message: String(describing: error)))
+                    continue
+                }
+
+                try store.upsert(thread: parsed.thread)
+                let remainingContracts = contracts.filter {
+                    $0.active && $0.status == "keep" && !unlockedIDs.contains($0.id)
+                }
+                let events = EventExtractor.extract(from: parsed)
+                let unlocks = AchievementEngine.evaluate(
+                    contracts: remainingContracts,
+                    parsed: parsed,
+                    events: events,
+                    existingUnlockedIDs: unlockedIDs
+                )
+                for unlock in unlocks {
+                    try store.insert(unlock: unlock)
+                    unlockedIDs.insert(unlock.achievementID)
+                }
+                allUnlocks.append(contentsOf: unlocks)
+                try store.recordSourceRecord(
+                    record: record,
+                    threadID: parsed.thread.id,
+                    scanID: scanID
+                )
+            }
+
+            try store.reconcileMissingSourceRecords(
+                sourceTool: adapter.sourceTool,
+                seenRecordIDs: seenRecordIDs,
+                scanID: scanID
+            )
+        }
+
+        return IndexResult(unlocks: allUnlocks, warnings: warnings)
+    }
+
+    @discardableResult
     public static func index(paths: [URL], contractsURL: URL, storePath: String) throws -> IndexResult {
         let contracts = try AchievementContractLoader.load(jsonlURL: contractsURL)
         return try index(paths: paths, contracts: contracts, storePath: storePath)
