@@ -1,13 +1,17 @@
 import Foundation
 import SQLite3
 
-public final class ReadOnlySQLiteSnapshot {
+// The database handle and transaction state are only accessed while holding
+// transactionScopeLock after initialization.
+public final class ReadOnlySQLiteSnapshot: @unchecked Sendable {
     public enum Error: Swift.Error, Equatable {
         case openFailed
         case prepareFailed
         case stepFailed
         case busy
         case transactionEnded
+        case transactionAlreadyActive
+        case statementRejected
     }
 
     public final class ReadTransaction {
@@ -22,13 +26,16 @@ public final class ReadOnlySQLiteSnapshot {
             lock.lock()
             defer { lock.unlock() }
             guard let database else { throw Error.transactionEnded }
+            guard Self.isAllowedReadStatement(sql) else { throw Error.statementRejected }
 
             var statement: OpaquePointer?
             let prepareResult = sqlite3_prepare_v2(database, sql, -1, &statement, nil)
             guard prepareResult == SQLITE_OK else {
                 throw ReadOnlySQLiteSnapshot.mappedError(prepareResult, fallback: .prepareFailed)
             }
+            guard let statement else { throw Error.statementRejected }
             defer { sqlite3_finalize(statement) }
+            guard sqlite3_stmt_readonly(statement) != 0 else { throw Error.statementRejected }
 
             var rows: [[String?]] = []
             while true {
@@ -50,6 +57,87 @@ public final class ReadOnlySQLiteSnapshot {
             lock.unlock()
         }
 
+        private static func isAllowedReadStatement(_ sql: String) -> Bool {
+            guard let (keyword, remainder) = leadingKeywordAndRemainder(in: sql) else { return false }
+            switch keyword {
+            case "SELECT", "WITH", "EXPLAIN":
+                return true
+            case "PRAGMA":
+                return isAllowedPragma(remainder)
+            default:
+                return false
+            }
+        }
+
+        private static func isAllowedPragma(_ remainder: String) -> Bool {
+            let value = remainder.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty, !value.contains("=") else { return false }
+
+            let nameEnd = value.firstIndex { character in
+                character.isWhitespace || character == "(" || character == ";"
+            } ?? value.endIndex
+            let qualifiedName = value[..<nameEnd].uppercased()
+            let name = qualifiedName.split(separator: ".").last.map(String.init) ?? qualifiedName
+            let argument = value[nameEnd...].trimmingCharacters(in: .whitespacesAndNewlines)
+
+            switch name {
+            case "QUERY_ONLY", "BUSY_TIMEOUT", "USER_VERSION", "SCHEMA_VERSION":
+                return argument.isEmpty || argument == ";"
+            case "TABLE_INFO", "TABLE_XINFO":
+                return argument.isEmpty || argument == ";"
+                    || (argument.hasPrefix("(") && (argument.hasSuffix(")") || argument.hasSuffix(");")))
+            default:
+                return false
+            }
+        }
+
+        private static func leadingKeywordAndRemainder(in sql: String) -> (keyword: String, remainder: String)? {
+            let bytes = Array(sql.utf8)
+            var index = 0
+
+            while index < bytes.count {
+                while index < bytes.count, isWhitespace(bytes[index]) {
+                    index += 1
+                }
+
+                if index + 1 < bytes.count, bytes[index] == 45, bytes[index + 1] == 45 {
+                    index += 2
+                    while index < bytes.count, bytes[index] != 10, bytes[index] != 13 {
+                        index += 1
+                    }
+                    continue
+                }
+
+                if index + 1 < bytes.count, bytes[index] == 47, bytes[index + 1] == 42 {
+                    index += 2
+                    while index + 1 < bytes.count,
+                          !(bytes[index] == 42 && bytes[index + 1] == 47) {
+                        index += 1
+                    }
+                    guard index + 1 < bytes.count else { return nil }
+                    index += 2
+                    continue
+                }
+
+                break
+            }
+
+            let start = index
+            while index < bytes.count,
+                  (bytes[index] >= 65 && bytes[index] <= 90 || bytes[index] >= 97 && bytes[index] <= 122) {
+                index += 1
+            }
+            guard start < index else { return nil }
+            return (
+                String(decoding: bytes[start..<index], as: UTF8.self).uppercased(),
+                String(decoding: bytes[index...], as: UTF8.self)
+            )
+        }
+
+        private static func isWhitespace(_ byte: UInt8) -> Bool {
+            byte == 32 || (byte >= 9 && byte <= 13)
+        }
+
         private static func stringRow(from statement: OpaquePointer?) -> [String?] {
             (0..<sqlite3_column_count(statement)).map { column in
                 guard sqlite3_column_type(statement, column) != SQLITE_NULL,
@@ -64,7 +152,9 @@ public final class ReadOnlySQLiteSnapshot {
     let temporaryDatabaseURL: URL
 
     private let temporaryDirectoryURL: URL
+    private let transactionScopeLock = NSRecursiveLock()
     private var database: OpaquePointer?
+    private var transactionActive = false
 
     public init(
         sourceURL: URL,
@@ -103,7 +193,12 @@ public final class ReadOnlySQLiteSnapshot {
     public func withReadTransaction<Result>(
         _ body: (ReadTransaction) throws -> Result
     ) throws -> Result {
+        transactionScopeLock.lock()
+        defer { transactionScopeLock.unlock() }
+        guard !transactionActive else { throw Error.transactionAlreadyActive }
         guard let database else { throw Error.openFailed }
+        transactionActive = true
+        defer { transactionActive = false }
         try Self.executeControl("BEGIN DEFERRED;", on: database)
         let transaction = ReadTransaction(database: database)
 

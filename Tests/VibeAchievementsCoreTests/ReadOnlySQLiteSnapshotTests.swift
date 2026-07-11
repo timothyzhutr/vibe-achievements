@@ -41,6 +41,54 @@ final class ReadOnlySQLiteSnapshotTests: XCTestCase {
         }
     }
 
+    func testReentrantReadTransactionIsRejectedWithoutBreakingOuterScope() throws {
+        let fixture = try WALFixture()
+        defer { fixture.remove() }
+        let snapshot = try ReadOnlySQLiteSnapshot(sourceURL: fixture.databaseURL)
+
+        try snapshot.withReadTransaction { transaction in
+            XCTAssertThrowsError(
+                try snapshot.withReadTransaction { _ in () }
+            ) { error in
+                XCTAssertEqual(error as? ReadOnlySQLiteSnapshot.Error, .transactionAlreadyActive)
+            }
+            XCTAssertEqual(
+                try transaction.stringRows(sql: "SELECT body FROM messages;"),
+                [["created-before-wal-row"]]
+            )
+        }
+    }
+
+    func testTransactionControlIsRejectedBeforeSQLitePrepare() throws {
+        let fixture = try WALFixture()
+        defer { fixture.remove() }
+        let snapshot = try ReadOnlySQLiteSnapshot(sourceURL: fixture.databaseURL)
+        let transactionControl = [
+            "BEGIN;",
+            "COMMIT;",
+            "ROLLBACK;",
+            "BEGIN invalid syntax;",
+            "/* adapter query */ COMMIT invalid syntax;",
+            "-- adapter query\nROLLBACK invalid syntax;"
+        ]
+
+        try snapshot.withReadTransaction { transaction in
+            for sql in transactionControl {
+                XCTAssertThrowsError(try transaction.stringRows(sql: sql)) { error in
+                    XCTAssertEqual(error as? ReadOnlySQLiteSnapshot.Error, .statementRejected)
+                }
+            }
+        }
+    }
+
+    func testSnapshotSupportsSendableAdapterOwnership() throws {
+        let fixture = try WALFixture()
+        defer { fixture.remove() }
+        let snapshot = try ReadOnlySQLiteSnapshot(sourceURL: fixture.databaseURL)
+
+        requireSendable(snapshot)
+    }
+
     func testQueryOnlyConnectionDeniesWrites() throws {
         let fixture = try WALFixture()
         defer { fixture.remove() }
@@ -56,9 +104,14 @@ final class ReadOnlySQLiteSnapshotTests: XCTestCase {
                 [["250"]]
             )
             XCTAssertThrowsError(
+                try transaction.stringRows(sql: "PRAGMA query_only=OFF;")
+            ) { error in
+                XCTAssertEqual(error as? ReadOnlySQLiteSnapshot.Error, .statementRejected)
+            }
+            XCTAssertThrowsError(
                 try transaction.stringRows(sql: "INSERT INTO messages (body) VALUES ('denied');")
             ) { error in
-                XCTAssertEqual(error as? ReadOnlySQLiteSnapshot.Error, .stepFailed)
+                XCTAssertEqual(error as? ReadOnlySQLiteSnapshot.Error, .statementRejected)
             }
         }
     }
@@ -115,6 +168,27 @@ final class ReadOnlySQLiteSnapshotTests: XCTestCase {
         ) { error in
             XCTAssertEqual(error as? ReadOnlySQLiteSnapshot.Error, .openFailed)
         }
+    }
+
+    func testBackupFailureRemovesPartiallyCreatedSnapshot() throws {
+        let parentURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ReadOnlySQLiteSnapshotBackupFailure-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: parentURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: parentURL) }
+        let invalidDatabaseURL = parentURL.appendingPathComponent("invalid.sqlite")
+        try Data("not a sqlite database".utf8).write(to: invalidDatabaseURL)
+
+        XCTAssertThrowsError(
+            try ReadOnlySQLiteSnapshot(
+                sourceURL: invalidDatabaseURL,
+                temporaryDirectory: parentURL
+            )
+        )
+
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: parentURL.path),
+            ["invalid.sqlite"]
+        )
     }
 
     func testBusyFailureUsesTypedError() throws {
@@ -203,3 +277,5 @@ private final class SQLiteConnection {
 private enum FixtureError: Swift.Error {
     case sqlite
 }
+
+private func requireSendable<Value: Sendable>(_: Value) {}
