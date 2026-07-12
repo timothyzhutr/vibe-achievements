@@ -87,7 +87,7 @@ final class AntigravitySourceAdapterTests: XCTestCase {
         ])
     }
 
-    func testIDERecordWinsExactNormalizedDuplicateFromCLI() throws {
+    func testIDEAndCLIImportsRemainDistinctWithoutDiscoveryContentReads() throws {
         let root = try makeRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let home = root.appendingPathComponent("home", isDirectory: true)
@@ -103,10 +103,62 @@ final class AntigravitySourceAdapterTests: XCTestCase {
         let inventory = try makeAdapter(home: home).discover()
 
         XCTAssertEqual(inventory.records.map(\.stableID), [
-            "antigravity:ide:\(ideID.uuidString.lowercased())"
+            "antigravity:ide:\(ideID.uuidString.lowercased())",
+            "antigravity:cli:\(cliID.uuidString.lowercased())"
         ])
-        XCTAssertEqual(inventory.warnings.map(\.code), [.duplicateRecord])
-        XCTAssertTrue(inventory.warnings[0].message.contains("CLI"))
+        XCTAssertTrue(inventory.warnings.isEmpty)
+    }
+
+    func testDiscoveryDoesNotReadTranscriptContents() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let ideRoot = root.appendingPathComponent("ide", isDirectory: true)
+        let cliRoot = root.appendingPathComponent("cli", isDirectory: true)
+        let ideID = try XCTUnwrap(UUID(uuidString: "99999999-9999-9999-9999-999999999999"))
+        try writeTranscript(
+            root: ideRoot,
+            id: ideID,
+            text: #"{"type":"user_input","text":"metadata only"}"#
+        )
+        try FileManager.default.createDirectory(at: cliRoot, withIntermediateDirectories: true)
+        let reads = LockedCounter()
+        let adapter = AntigravitySourceAdapter(
+            ideBrainRoot: ideRoot,
+            cliBrainRoot: cliRoot,
+            detectorVersion: "test",
+            sourceTool: .antigravity,
+            stableReader: { url in
+                reads.increment()
+                return try Data(contentsOf: url)
+            }
+        )
+
+        let inventory = try adapter.discover()
+
+        XCTAssertEqual(inventory.records.count, 1)
+        XCTAssertEqual(reads.value, 0)
+    }
+
+    func testEmptyOrPartialOnlyTranscriptDoesNotReplacePriorState() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let ideRoot = root.appendingPathComponent("ide", isDirectory: true)
+        let cliRoot = root.appendingPathComponent("cli", isDirectory: true)
+        let id = try XCTUnwrap(UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))
+        try writeTranscript(root: ideRoot, id: id, text: #"{"type":"user_input""#)
+        try FileManager.default.createDirectory(at: cliRoot, withIntermediateDirectories: true)
+        let adapter = AntigravitySourceAdapter(
+            ideBrainRoot: ideRoot,
+            cliBrainRoot: cliRoot,
+            detectorVersion: "test",
+            sourceTool: .antigravity,
+            stableReader: { try Data(contentsOf: $0) }
+        )
+        let record = try XCTUnwrap(adapter.discover().records.first)
+
+        XCTAssertThrowsError(try adapter.parse(record)) { error in
+            XCTAssertEqual(error as? ConversationSourceAdapterError, .unsupportedRecord)
+        }
     }
 
     func testPrefixOnlyForksRemainDistinct() throws {
@@ -216,5 +268,22 @@ private final class LockedSequence<Value>: @unchecked Sendable {
         defer { lock.unlock() }
         count += 1
         return values.removeFirst()
+    }
+}
+
+private final class LockedCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+
+    func increment() {
+        lock.lock()
+        count += 1
+        lock.unlock()
     }
 }

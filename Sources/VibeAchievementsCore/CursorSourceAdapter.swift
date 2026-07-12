@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 public struct CursorRoots: Equatable, Sendable {
@@ -118,104 +119,100 @@ public struct CursorSourceAdapter: ConversationSourceAdapter {
     }
 
     private func databaseRecords(at url: URL, generation: String) throws -> [ConversationSourceRecord] {
-        let snapshot = try ReadOnlySQLiteSnapshot(sourceURL: url)
-        let rows = try snapshot.withReadTransaction { transaction in
-            try transaction.stringRows(sql: """
+        let snapshot = try ReadOnlySQLiteSnapshot(sourceURL: url, strategy: .direct)
+        return try snapshot.withReadTransaction { transaction in
+            let rows = try transaction.stringRows(sql: """
             SELECT name FROM sqlite_master
             WHERE type = 'table' AND name IN ('composerHeaders', 'cursorDiskKV', 'ItemTable');
             """)
-        }
-        let tables = Set(rows.compactMap { cell($0, 0) })
-        guard tables.contains("composerHeaders") || tables.contains("cursorDiskKV") || tables.contains("ItemTable") else {
-            throw CursorDiscoveryError.schemaUnsupported
-        }
-
-        var records: [ConversationSourceRecord] = []
-        var keyRows: [[String?]] = []
-        if tables.contains("cursorDiskKV") {
-            guard tableColumns(snapshot: snapshot, table: "cursorDiskKV").contains("key") else {
+            let tables = Set(rows.compactMap { cell($0, 0) })
+            guard tables.contains("composerHeaders") || tables.contains("cursorDiskKV") || tables.contains("ItemTable") else {
                 throw CursorDiscoveryError.schemaUnsupported
             }
-            keyRows = try snapshot.withReadTransaction { transaction in
-                try transaction.stringRows(sql: """
-                SELECT key FROM cursorDiskKV
+
+            var records: [ConversationSourceRecord] = []
+            var keyRows: [[String?]] = []
+            if tables.contains("cursorDiskKV") {
+                guard try tableColumns(transaction: transaction, table: "cursorDiskKV").contains("key") else {
+                    throw CursorDiscoveryError.schemaUnsupported
+                }
+                let valueColumn = tables.contains("composerHeaders")
+                    ? "NULL"
+                    : "CASE WHEN key LIKE 'composerData:%' THEN value ELSE NULL END"
+                keyRows = try transaction.stringRows(sql: """
+                SELECT key, \(valueColumn)
+                FROM cursorDiskKV
                 WHERE key LIKE 'composerData:%'
-                   OR key LIKE 'bubbleId:%'
-                   OR key LIKE 'agentKv:blob:%';
+                   OR key LIKE 'bubbleId:%';
                 """)
             }
-        }
-        let composerIDs = Set(keyRows.compactMap { cell($0, 0) }
-            .filter { $0.hasPrefix("composerData:") }
-            .map { String($0.dropFirst("composerData:".count)) })
-        let bubbleCounts = Dictionary(grouping: keyRows.compactMap { cell($0, 0) }) { key in
-            key.split(separator: ":").dropFirst().first.map(String.init) ?? ""
-        }.mapValues { keys in
-            keys.filter { $0.hasPrefix("bubbleId:") }.count
-        }
-        let bubbleKeys = Dictionary(grouping: keyRows.compactMap { cell($0, 0) }) { key in
-            key.split(separator: ":").dropFirst().first.map(String.init) ?? ""
-        }.mapValues { keys in
-            keys.filter { $0.hasPrefix("bubbleId:") }.sorted().joined(separator: ",")
-        }
-        if tables.contains("composerHeaders") {
-            let columns = tableColumns(snapshot: snapshot, table: "composerHeaders")
-            guard columns.contains("composerId") else {
-                throw CursorDiscoveryError.schemaUnsupported
+            let composerIDs = Set(keyRows.compactMap { cell($0, 0) }
+                .filter { $0.hasPrefix("composerData:") }
+                .map { String($0.dropFirst("composerData:".count)) })
+            let composerDigests = Dictionary(uniqueKeysWithValues: keyRows.compactMap { row -> (String, String)? in
+                guard let key = cell(row, 0), key.hasPrefix("composerData:"),
+                      let value = cell(row, 1) else { return nil }
+                return (String(key.dropFirst("composerData:".count)), sha256(value))
+            })
+            let groupedKeys = Dictionary(grouping: keyRows.compactMap { cell($0, 0) }) { key in
+                key.split(separator: ":").dropFirst().first.map(String.init) ?? ""
             }
-            let workspaceColumn = columns.contains("workspaceId") ? "workspaceId" : "NULL"
-            let createdColumn = columns.contains("createdAt") ? "createdAt" : "NULL"
-            let updatedColumn = columns.contains("lastUpdatedAt") ? "lastUpdatedAt" : "NULL"
-            let subagentFilter = columns.contains("isSubagent") ? "COALESCE(isSubagent, 0) = 0" : "1 = 1"
-            let checkpointFilter = columns.contains("checkpointAt") ? "COALESCE(checkpointAt, 0) = 0" : "1 = 1"
-            let headerRows = try snapshot.withReadTransaction { transaction in
-                try transaction.stringRows(sql: "SELECT composerId, \(workspaceColumn), \(createdColumn), \(updatedColumn) FROM composerHeaders WHERE \(subagentFilter) AND \(checkpointFilter);")
+            let bubbleCounts = groupedKeys.mapValues { $0.filter { $0.hasPrefix("bubbleId:") }.count }
+            let bubbleKeys = groupedKeys.mapValues {
+                $0.filter { $0.hasPrefix("bubbleId:") }.sorted().joined(separator: ",")
             }
-            for row in headerRows {
-                guard let composerID = cell(row, 0), !composerID.isEmpty else { continue }
-                // A header without composerData is a stale index entry, not a
-                // readable conversation. It must not create a phantom record.
-                guard tables.contains("cursorDiskKV"), composerIDs.contains(composerID) else { continue }
-                let workspaceID = cell(row, 1).flatMap { $0.isEmpty ? nil : $0 }
-                    ?? url.deletingLastPathComponent().lastPathComponent
-                let metadata = [
-                    cell(row, 2) ?? "",
-                    cell(row, 3) ?? "",
-                    String(bubbleCounts[composerID] ?? 0),
-                    bubbleKeys[composerID] ?? ""
-                ].joined(separator: ":")
-                records.append(makeDatabaseRecord(
-                    database: url,
-                    generation: generation,
-                    workspaceID: workspaceID,
-                    composerID: composerID,
-                    fingerprintMetadata: metadata
-                ))
-            }
-        }
 
-        if tables.contains("cursorDiskKV") && !tables.contains("composerHeaders") {
-            let workspaceID = url.deletingLastPathComponent().lastPathComponent
-            for composerID in composerIDs.sorted() {
-                guard !composerID.isEmpty else { continue }
-                records.append(makeDatabaseRecord(
-                    database: url,
-                    generation: generation,
-                    workspaceID: workspaceID,
-                    composerID: composerID,
-                    fingerprintMetadata: "\(bubbleCounts[composerID] ?? 0):\(bubbleKeys[composerID] ?? "")"
-                ))
-            }
-        }
-
-        if records.isEmpty, tables.contains("ItemTable") {
-            let rows = try snapshot.withReadTransaction { transaction in
-                try transaction.stringRows(sql: "SELECT key FROM ItemTable WHERE key = 'composer.composerData';")
-            }
-            if !rows.isEmpty {
-                let valueRows = try snapshot.withReadTransaction { transaction in
-                    try transaction.stringRows(sql: "SELECT value FROM ItemTable WHERE key = 'composer.composerData';")
+            if tables.contains("composerHeaders") {
+                let columns = try tableColumns(transaction: transaction, table: "composerHeaders")
+                guard columns.contains("composerId") else { throw CursorDiscoveryError.schemaUnsupported }
+                let workspaceColumn = columns.contains("workspaceId") ? "workspaceId" : "NULL"
+                let createdColumn = columns.contains("createdAt") ? "createdAt" : "NULL"
+                let updatedColumn = columns.contains("lastUpdatedAt") ? "lastUpdatedAt" : "NULL"
+                let subagentFilter = columns.contains("isSubagent") ? "COALESCE(isSubagent, 0) = 0" : "1 = 1"
+                let checkpointFilter = columns.contains("checkpointAt") ? "COALESCE(checkpointAt, 0) = 0" : "1 = 1"
+                let headerRows = try transaction.stringRows(sql: "SELECT composerId, \(workspaceColumn), \(createdColumn), \(updatedColumn) FROM composerHeaders WHERE \(subagentFilter) AND \(checkpointFilter);")
+                for row in headerRows {
+                    guard let composerID = cell(row, 0), !composerID.isEmpty,
+                          tables.contains("cursorDiskKV"), composerIDs.contains(composerID) else { continue }
+                    let workspaceID = cell(row, 1).flatMap { $0.isEmpty ? nil : $0 }
+                        ?? url.deletingLastPathComponent().lastPathComponent
+                    let metadata = [
+                        cell(row, 2) ?? "",
+                        cell(row, 3) ?? "",
+                        String(bubbleCounts[composerID] ?? 0),
+                        bubbleKeys[composerID] ?? ""
+                    ].joined(separator: ":")
+                    records.append(makeDatabaseRecord(
+                        database: url,
+                        generation: generation,
+                        workspaceID: workspaceID,
+                        composerID: composerID,
+                        fingerprintMetadata: metadata
+                    ))
                 }
+            }
+
+            if tables.contains("cursorDiskKV") && !tables.contains("composerHeaders") {
+                let workspaceID = url.deletingLastPathComponent().lastPathComponent
+                for composerID in composerIDs.sorted() where !composerID.isEmpty {
+                    records.append(makeDatabaseRecord(
+                        database: url,
+                        generation: generation,
+                        workspaceID: workspaceID,
+                        composerID: composerID,
+                        fingerprintMetadata: [
+                            String(bubbleCounts[composerID] ?? 0),
+                            bubbleKeys[composerID] ?? "",
+                            composerDigests[composerID] ?? ""
+                        ].joined(separator: ":")
+                    ))
+                }
+            }
+
+            if tables.contains("ItemTable") {
+                let valueRows = try transaction.stringRows(
+                    sql: "SELECT value FROM ItemTable WHERE key = 'composer.composerData';"
+                )
                 let workspaceID = url.deletingLastPathComponent().lastPathComponent
                 if let value = cell(valueRows.first ?? [], 0),
                    let data = value.data(using: .utf8),
@@ -223,6 +220,8 @@ public struct CursorSourceAdapter: ConversationSourceAdapter {
                    let composers = root["allComposers"] as? [[String: Any]] {
                     for composer in composers {
                         guard let composerID = composer["composerId"] as? String, !composerID.isEmpty else { continue }
+                        let stableID = "cursor:\(workspaceID):\(composerID)"
+                        guard !records.contains(where: { $0.stableID == stableID }) else { continue }
                         let metadata = "\(composer["createdAt"] ?? ""):\(composer["lastUpdatedAt"] ?? "")"
                         records.append(makeDatabaseRecord(
                             database: url,
@@ -234,8 +233,8 @@ public struct CursorSourceAdapter: ConversationSourceAdapter {
                     }
                 }
             }
+            return records
         }
-        return records
     }
 
     private func workspaceRecords(in root: URL) throws -> CursorDiscoveryBatch {
@@ -360,9 +359,16 @@ private func cell(_ row: [String?], _ index: Int) -> String? {
     return row[index]
 }
 
-private func tableColumns(snapshot: ReadOnlySQLiteSnapshot, table: String) -> Set<String> {
-    let rows = try? snapshot.withReadTransaction { transaction in
-        try transaction.stringRows(sql: "PRAGMA table_info(\(table));")
-    }
-    return Set(rows?.compactMap { cell($0, 1) } ?? [])
+private func tableColumns(
+    transaction: ReadOnlySQLiteSnapshot.ReadTransaction,
+    table: String
+) throws -> Set<String> {
+    let rows = try transaction.stringRows(sql: "PRAGMA table_info(\(table));")
+    return Set(rows.compactMap { cell($0, 1) })
+}
+
+private func sha256(_ value: String) -> String {
+    SHA256.hash(data: Data(value.utf8))
+        .map { String(format: "%02x", $0) }
+        .joined()
 }

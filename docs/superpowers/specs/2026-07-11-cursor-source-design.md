@@ -92,20 +92,22 @@ be ISO-8601. Missing transcript timestamps remain nil; file mtime may set thread
 
 ## Incremental Fingerprint
 
-- SQLite composer: schema generation, composer `lastUpdatedAt`, ordered bubble-ID
-  digest, and referenced agent-blob digest.
+- SQLite composer: schema generation, composer `lastUpdatedAt`, and ordered
+  bubble-ID digest. KV-only legacy stores additionally hash composer payloads.
 - JSONL transcript: detector version, size, and mtime.
 - Legacy composer: workspace ID, composer ID, update value, and ordered bubble-ID
   digest.
 
 The adapter reads only composers whose cheap metadata fingerprint changed.
+The installed Cursor schema contains unlinked `agentKv:blob` rows; those are not
+guessed into conversations until a persisted composer/bubble reference is
+observed and can be fixture-tested without scanning unrelated blob content.
 
 ## Duplicate Handling
 
-Deduplicate first by composer/conversation ID. When generations use different
-IDs, compute a local SHA-256 digest of normalized role/text order and keep the
-highest-priority representation for exact matches. Hashes remain local and are
-not used as project identity.
+Deduplicate first by composer/conversation ID. Cross-generation records with
+different IDs remain distinct in V1; incremental normalized-content ownership is
+deferred so periodic discovery never rereads all conversation text.
 
 ## Local Validation Gate
 
@@ -119,9 +121,10 @@ unchanged rescan. Never capture real text in fixtures or logs.
 - Busy database: retry on the next scan and preserve prior derived data.
 - Unknown schema: report `schemaUnsupported`; do not fall through to another
   platform parser.
-- Missing bubble/blob: skip that item, warn once per composer, and preserve other
-  messages.
-- Database changes during enumeration: restart that database read once.
+- Missing bubble: preserve other messages; if no usable messages remain, retry
+  the record on the next scan without replacing prior derived state.
+- Database changes during enumeration: each database is read inside one direct,
+  consistent SQLite transaction.
 - Missing workspace metadata: index global counts with unknown project identity.
 
 ## Acceptance Criteria
@@ -132,4 +135,3 @@ unchanged rescan. Never capture real text in fixtures or logs.
 - Background Agent remote history is never represented as locally complete.
 - No query touches non-allowlisted KV keys.
 - A second unchanged scan parses zero Cursor conversations.
-

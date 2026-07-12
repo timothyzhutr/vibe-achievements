@@ -33,6 +33,22 @@ public struct CursorGlobalStoreReader: Sendable {
         composerID: String,
         from snapshot: ReadOnlySQLiteSnapshot
     ) throws -> [[String: Any]] {
+        if let headers = composer["fullConversationHeadersOnly"] as? [[String: Any]],
+           !headers.isEmpty {
+            let bubbles = try headers.compactMap { header -> [String: Any]? in
+                guard let bubbleID = header["bubbleId"] as? String, !bubbleID.isEmpty,
+                      var bubble = try readJSONObject(
+                          key: "bubbleId:\(composerID):\(bubbleID)",
+                          from: snapshot
+                      ) else { return nil }
+                bubble["bubbleId"] = bubble["bubbleId"] ?? bubbleID
+                bubble["type"] = bubble["type"] ?? header["type"]
+                return bubble
+            }
+            guard !bubbles.isEmpty else { throw CursorReaderError.missingBubble }
+            return bubbles
+        }
+
         if let inline = composer["conversation"] as? [[String: Any]], !inline.isEmpty {
             return inline
         }
@@ -75,6 +91,7 @@ public struct CursorGlobalStoreReader: Sendable {
 
 private enum CursorReaderError: Error {
     case missingComposer
+    case missingBubble
 }
 
 private func sqlLiteral(_ value: String) -> String {

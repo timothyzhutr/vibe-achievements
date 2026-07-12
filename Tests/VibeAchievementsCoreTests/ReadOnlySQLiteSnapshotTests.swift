@@ -19,6 +19,23 @@ final class ReadOnlySQLiteSnapshotTests: XCTestCase {
         XCTAssertEqual(rows, [["created-before-wal-row"], ["committed-in-wal"]])
     }
 
+    func testDirectReadModeSeesWALRowsWithoutCreatingBackupDatabase() throws {
+        let fixture = try WALFixture()
+        defer { fixture.remove() }
+        try fixture.execute("INSERT INTO messages (body) VALUES ('committed-in-wal');")
+
+        let reader = try ReadOnlySQLiteSnapshot(
+            sourceURL: fixture.databaseURL,
+            strategy: .direct
+        )
+        let rows = try reader.withReadTransaction { transaction in
+            try transaction.stringRows(sql: "SELECT body FROM messages ORDER BY rowid;")
+        }
+
+        XCTAssertEqual(reader.temporaryDatabaseURL, fixture.databaseURL)
+        XCTAssertEqual(rows, [["created-before-wal-row"], ["committed-in-wal"]])
+    }
+
     func testEscapedTransactionIsRejectedAfterReadScopeEnds() throws {
         let fixture = try WALFixture()
         defer { fixture.remove() }

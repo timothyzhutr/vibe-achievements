@@ -28,6 +28,38 @@ final class IndexerTests: XCTestCase {
         XCTAssertEqual(adapter.parseCount, 2)
     }
 
+    func testFirstSeenUnsupportedRecordIsRememberedWithoutCreatingAThread() throws {
+        let store = try makeStore()
+        let sourceRecord = record(id: "unsupported", fingerprint: "fp-1")
+        let adapter = StubAdapter(records: [sourceRecord])
+        adapter.parseError = ConversationSourceAdapterError.unsupportedRecord
+
+        let first = try Indexer.index(adapters: [adapter], contracts: [], store: store, scanID: "scan-1")
+        let second = try Indexer.index(adapters: [adapter], contracts: [], store: store, scanID: "scan-2")
+
+        XCTAssertEqual(first.warnings.count, 1)
+        XCTAssertTrue(second.warnings.isEmpty)
+        XCTAssertEqual(adapter.parseCount, 1)
+        XCTAssertFalse(try store.threadExists(id: "claude_code:unsupported"))
+        XCTAssertFalse(try XCTUnwrap(store.sourceRecord(identity: sourceRecord.identity)).threadID.isEmpty)
+    }
+
+    func testUnsupportedReplacementDoesNotOverwriteExistingValidThread() throws {
+        let store = try makeStore()
+        let adapter = StubAdapter(records: [record(id: "temporary", fingerprint: "valid-fp")])
+        _ = try Indexer.index(adapters: [adapter], contracts: [], store: store, scanID: "scan-1")
+
+        adapter.records = [record(id: "temporary", fingerprint: "empty-fp")]
+        adapter.parseError = ConversationSourceAdapterError.unsupportedRecord
+        _ = try Indexer.index(adapters: [adapter], contracts: [], store: store, scanID: "scan-2")
+
+        XCTAssertTrue(try store.threadExists(id: "claude_code:temporary"))
+        XCTAssertEqual(
+            try store.sourceRecord(identity: adapter.records[0].identity)?.fingerprint,
+            "valid-fp"
+        )
+    }
+
     func testAdapterDiscoveryFailureDoesNotBlockAnotherAdapter() throws {
         let store = try makeStore()
         let failed = StubAdapter(sourceTool: .claudeCode, records: [])
@@ -103,6 +135,24 @@ final class IndexerTests: XCTestCase {
         _ = try Indexer.index(adapters: [adapter], contracts: [], store: store, scanID: "scan-3")
 
         XCTAssertTrue(try store.threadExists(id: "claude_code:safe"))
+    }
+
+    func testDuplicateWarningDoesNotBlockMissingRecordReconciliation() throws {
+        let store = try makeStore()
+        let adapter = StubAdapter(records: [record(id: "gone", fingerprint: "fp")])
+        _ = try Indexer.index(adapters: [adapter], contracts: [], store: store, scanID: "scan-1")
+
+        adapter.records = []
+        adapter.warnings = [SourceWarning(
+            sourceTool: .claudeCode,
+            recordID: "duplicate",
+            code: .duplicateRecord,
+            message: "Ignored an expected duplicate"
+        )]
+        _ = try Indexer.index(adapters: [adapter], contracts: [], store: store, scanID: "scan-2")
+        _ = try Indexer.index(adapters: [adapter], contracts: [], store: store, scanID: "scan-3")
+
+        XCTAssertFalse(try store.threadExists(id: "claude_code:gone"))
     }
 
     func testStructuredSourceWarningFieldsArePreserved() throws {

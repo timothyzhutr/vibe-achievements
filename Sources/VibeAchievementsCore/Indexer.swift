@@ -46,6 +46,8 @@ public struct IndexResult: Sendable {
 }
 
 public enum Indexer {
+    private static let skippedUnsupportedThreadID = "__vibe_unsupported_source_record__"
+
     @discardableResult
     public static func index(
         adapters: [any ConversationSourceAdapter],
@@ -94,7 +96,8 @@ public enum Indexer {
             })
 
             var seenRecordIDs = Set<String>()
-            var canReconcileMissingRecords = inventory.isComplete && inventory.warnings.isEmpty
+            var canReconcileMissingRecords = inventory.isComplete
+                && !inventory.warnings.contains { $0.code != .duplicateRecord }
             for record in inventory.records {
                 guard record.sourceTool == adapter.sourceTool else {
                     canReconcileMissingRecords = false
@@ -133,6 +136,14 @@ public enum Indexer {
                         sourceTool: adapter.sourceTool,
                         recordID: record.stableID
                     ))
+                    if error as? ConversationSourceAdapterError == .unsupportedRecord,
+                       knownRecord == nil || knownRecord?.threadID == skippedUnsupportedThreadID {
+                        try store.recordSourceRecord(
+                            record: record,
+                            threadID: skippedUnsupportedThreadID,
+                            scanID: scanID
+                        )
+                    }
                     continue
                 }
 

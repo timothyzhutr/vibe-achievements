@@ -92,6 +92,10 @@ strings.
 Use `ReadOnlySQLiteSnapshot`, never OpenCode's runtime database initializer. The
 source uses WAL, so reading/copying only the main database is invalid. A busy
 database produces a retryable warning and preserves previous derived data.
+Data-root enumeration failures mark the inventory incomplete so missing-record
+reconciliation cannot delete previously indexed sessions.
+An explicit `OPENCODE_DB` path is validated with throwing file metadata reads;
+missing or inaccessible overrides also produce an incomplete inventory.
 
 Queries explicitly name required tables/columns. Unknown schema variants are
 reported as unsupported rather than guessed.
@@ -106,8 +110,8 @@ validated.
 
 ## Failure Behavior
 
-- Multiple channel databases: enumerate each with database-qualified record IDs
-  and collapse exact content duplicates.
+- Multiple channel databases: enumerate each and choose one deterministic record
+  when the same session ID appears in more than one channel database.
 - Missing text part/blob: skip the item and warn once per session.
 - Migrated timestamp with uncertain provenance: preserve it as source time; do
   not claim exact original message time in UI.
@@ -123,4 +127,3 @@ validated.
 - WAL-backed databases are read consistently without source writes.
 - Auth and log files are never enumerated or opened.
 - A second unchanged scan parses zero OpenCode sessions.
-

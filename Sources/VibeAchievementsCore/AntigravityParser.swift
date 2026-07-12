@@ -50,13 +50,14 @@ public enum AntigravityParser {
         projectPathHint: String? = nil
     ) throws -> AntigravityParseResult {
         let text = String(decoding: data, as: UTF8.self)
+        let lines = text.components(separatedBy: "\n")
+        let hasTrailingNewline = text.last == "\n"
         var messages: [NormalizedMessage] = []
         var warnings: [AntigravityParseWarning] = []
         var projectPath = projectPathHint
 
-        for (lineIndex, rawLine) in text.components(separatedBy: "\n").enumerated() {
-            let isFinalLine = lineIndex == text.components(separatedBy: "\n").count - 1
-            let hasTrailingNewline = text.last == "\n"
+        for (lineIndex, rawLine) in lines.enumerated() {
+            let isFinalLine = lineIndex == lines.count - 1
             let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !line.isEmpty else { continue }
 

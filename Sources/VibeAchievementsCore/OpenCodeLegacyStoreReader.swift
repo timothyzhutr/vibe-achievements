@@ -22,14 +22,22 @@ public struct OpenCodeLegacyStoreReader {
         let sessionURL = sessionURL(storageRoot: storageRoot, projectID: projectID, sessionID: sessionID)
         for attempt in 0...1 {
             let sessionData = try readJSON(at: sessionURL)
-            let messageIDs = referencedIDs(from: sessionData, keys: ["messageIds", "messageIDs", "messages"])
+            let messageIDs = try childIDs(
+                referencedFrom: sessionData,
+                keys: ["messageIds", "messageIDs", "messages"],
+                directory: storageRoot.appendingPathComponent("message/\(sessionID)", isDirectory: true)
+            )
             let messageURLs = messageIDs.map { messageURL(storageRoot: storageRoot, sessionID: sessionID, messageID: $0) }
             var messageObjects: [(id: String, object: [String: Any], url: URL)] = []
             var partURLs: [URL] = []
             for (messageID, messageURL) in zip(messageIDs, messageURLs) {
                 let message = try readJSON(at: messageURL)
                 messageObjects.append((messageID, message, messageURL))
-                let partIDs = referencedIDs(from: message, keys: ["partIds", "partIDs", "parts"])
+                let partIDs = try childIDs(
+                    referencedFrom: message,
+                    keys: ["partIds", "partIDs", "parts"],
+                    directory: storageRoot.appendingPathComponent("part/\(messageID)", isDirectory: true)
+                )
                 partURLs.append(contentsOf: partIDs.map { partURL(storageRoot: storageRoot, messageID: messageID, partID: $0) })
             }
 
@@ -40,7 +48,11 @@ public struct OpenCodeLegacyStoreReader {
             var partsByMessage: [String: [[String: Any]]] = [:]
             for (messageID, _) in zip(messageIDs, messageURLs) {
                 let message = messageObjects.first { $0.id == messageID }?.object ?? [:]
-                let partIDs = referencedIDs(from: message, keys: ["partIds", "partIDs", "parts"])
+                let partIDs = try childIDs(
+                    referencedFrom: message,
+                    keys: ["partIds", "partIDs", "parts"],
+                    directory: storageRoot.appendingPathComponent("part/\(messageID)", isDirectory: true)
+                )
                 partsByMessage[messageID] = try partIDs.map { try readJSON(at: partURL(storageRoot: storageRoot, messageID: messageID, partID: $0)) }
                     .sorted { lhs, rhs in
                         let leftDate = OpenCodeSupport.date(lhs, keys: ["time_created", "timeCreated", "timestamp"])
@@ -108,13 +120,21 @@ public struct OpenCodeLegacyStoreReader {
     func fingerprint(storageRoot: URL, projectID: String, sessionID: String, detectorVersion: String) throws -> String {
         let sessionURL = sessionURL(storageRoot: storageRoot, projectID: projectID, sessionID: sessionID)
         let sessionData = try readJSON(at: sessionURL)
-        let messageIDs = referencedIDs(from: sessionData, keys: ["messageIds", "messageIDs", "messages"])
+        let messageIDs = try childIDs(
+            referencedFrom: sessionData,
+            keys: ["messageIds", "messageIDs", "messages"],
+            directory: storageRoot.appendingPathComponent("message/\(sessionID)", isDirectory: true)
+        )
         var paths = [sessionURL, storageRoot.appendingPathComponent("project/\(projectID).json")]
         for messageID in messageIDs {
             let messageURL = messageURL(storageRoot: storageRoot, sessionID: sessionID, messageID: messageID)
             paths.append(messageURL)
             if let message = try? readJSON(at: messageURL) {
-                let partIDs = referencedIDs(from: message, keys: ["partIds", "partIDs", "parts"])
+                let partIDs = try childIDs(
+                    referencedFrom: message,
+                    keys: ["partIds", "partIDs", "parts"],
+                    directory: storageRoot.appendingPathComponent("part/\(messageID)", isDirectory: true)
+                )
                 paths.append(contentsOf: partIDs.map { partURL(storageRoot: storageRoot, messageID: messageID, partID: $0) })
             }
         }
@@ -158,6 +178,28 @@ public struct OpenCodeLegacyStoreReader {
             }
         }
         return []
+    }
+
+    private func childIDs(
+        referencedFrom object: [String: Any],
+        keys: [String],
+        directory: URL
+    ) throws -> [String] {
+        let referenced = referencedIDs(from: object, keys: keys)
+        guard referenced.isEmpty else { return referenced }
+        guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
+        let children = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        )
+        return try children
+            .filter { url in
+                guard url.pathExtension == "json" else { return false }
+                return try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true
+            }
+            .map { $0.deletingPathExtension().lastPathComponent }
+            .sorted()
     }
 
     private func sessionURL(storageRoot: URL, projectID: String, sessionID: String) -> URL {

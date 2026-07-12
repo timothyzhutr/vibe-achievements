@@ -55,13 +55,12 @@ recognized persisted counter exists; otherwise the shared text estimate applies.
 
 ## Forks And Imports
 
-Fork and IDE/CLI import can clone history under a new conversation UUID. Exact
-normalized duplicates are collapsed by a local role/text digest, preferring IDE
-over imported CLI when both are otherwise equal. Prefix-related forks remain
-separate conversations in V1 of this adapter; the known consequence is that a
-shared prefix may contribute twice to cumulative counts. Prefix-aware lineage is
-deferred because it requires message-level aggregate deduplication across every
-source, not an Antigravity-only heuristic.
+Fork and IDE/CLI import can clone history under a new conversation UUID. V1 keeps
+those records separate so discovery remains metadata-only and does not reread
+every transcript during each five-minute scan. This can count an imported copy
+or shared fork prefix twice in cumulative metrics. Content-aware lineage and
+deduplication are deferred until they can run incrementally across every source
+instead of adding an Antigravity-only full-history pass.
 
 ## Local Validation Gate
 
@@ -77,6 +76,8 @@ state from older Antigravity versions is not accepted as a substitute.
 - Partial final JSONL record: ignore and retry on the next scan.
 - Malformed complete line: skip and report one record warning.
 - Recognized transcript with no user/assistant text: skip as unsupported content.
+- First-seen unsupported content persists a skipped fingerprint to avoid repeated
+  parsing; an existing valid thread is retained if its source temporarily empties.
 - Permission denied: needs-attention source state.
 
 ## Acceptance Criteria
@@ -86,6 +87,5 @@ state from older Antigravity versions is not accepted as a substitute.
 - User and planner-response fixture steps normalize in line order.
 - Unknown and tool-only variants do not become user turns.
 - A partial final line does not fail earlier valid history.
-- Exact imported duplicates emit one normalized thread.
+- IDE and CLI copies retain separate stable records without discovery-time reads.
 - A second unchanged scan parses zero Antigravity transcripts.
-

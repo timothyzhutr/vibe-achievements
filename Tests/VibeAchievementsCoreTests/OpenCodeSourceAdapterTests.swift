@@ -144,6 +144,129 @@ final class OpenCodeSourceAdapterTests: XCTestCase {
         XCTAssertEqual(inventory.warnings.first?.code, .schemaUnsupported)
         XCTAssertTrue(inventory.isComplete)
     }
+
+    func testEmptySupportedDatabaseIsConnectedAndEmptyWithoutWarning() throws {
+        let fixture = try OpenCodeFixture()
+        defer { fixture.remove() }
+        let dataRoot = fixture.root.appendingPathComponent("data", isDirectory: true)
+        try FileManager.default.createDirectory(at: dataRoot, withIntermediateDirectories: true)
+        try fixture.makeEmptyCurrentDatabase(at: dataRoot.appendingPathComponent("opencode.db"))
+
+        let inventory = try OpenCodeSourceAdapter(
+            dataRoot: dataRoot,
+            environment: [:],
+            detectorVersion: "test"
+        ).discover()
+
+        XCTAssertTrue(inventory.records.isEmpty)
+        XCTAssertTrue(inventory.warnings.isEmpty)
+        XCTAssertTrue(inventory.isComplete)
+    }
+
+    func testUnreadableDataRootEnumerationProducesIncompleteInventory() throws {
+        let fixture = try OpenCodeFixture()
+        defer { fixture.remove() }
+        let dataRoot = fixture.root.appendingPathComponent("data", isDirectory: true)
+        try FileManager.default.createDirectory(at: dataRoot, withIntermediateDirectories: true)
+        try fixture.makeCurrentDatabase(
+            at: dataRoot.appendingPathComponent("opencode.db"),
+            sessionID: "hidden"
+        )
+        XCTAssertEqual(chmod(dataRoot.path, 0), 0)
+        defer { _ = chmod(dataRoot.path, S_IRWXU) }
+
+        let inventory = try OpenCodeSourceAdapter(
+            dataRoot: dataRoot,
+            environment: [:],
+            detectorVersion: "test"
+        ).discover()
+
+        XCTAssertFalse(inventory.isComplete)
+        XCTAssertEqual(inventory.warnings.map(\.code), [.permissionDenied])
+    }
+
+    func testUnavailableExplicitDatabaseOverrideProducesIncompleteInventory() throws {
+        let fixture = try OpenCodeFixture()
+        defer { fixture.remove() }
+        let dataRoot = fixture.root.appendingPathComponent("data", isDirectory: true)
+        try FileManager.default.createDirectory(at: dataRoot, withIntermediateDirectories: true)
+        let missingOverride = fixture.root.appendingPathComponent("missing-override.db")
+
+        let inventory = try OpenCodeSourceAdapter(
+            dataRoot: dataRoot,
+            environment: ["OPENCODE_DB": missingOverride.path],
+            detectorVersion: "test"
+        ).discover()
+
+        XCTAssertFalse(inventory.isComplete)
+        XCTAssertEqual(inventory.warnings.map(\.code), [.permissionDenied])
+    }
+
+    func testSchemaPrepareFailureIsNotReportedAsSourceBusy() throws {
+        let fixture = try OpenCodeFixture()
+        defer { fixture.remove() }
+        let dataRoot = fixture.root.appendingPathComponent("data", isDirectory: true)
+        try FileManager.default.createDirectory(at: dataRoot, withIntermediateDirectories: true)
+        try fixture.makeIncompleteCurrentDatabase(at: dataRoot.appendingPathComponent("opencode.db"))
+
+        let inventory = try OpenCodeSourceAdapter(
+            dataRoot: dataRoot,
+            environment: [:],
+            detectorVersion: "test"
+        ).discover()
+
+        XCTAssertEqual(inventory.warnings.map(\.code), [.schemaUnsupported])
+    }
+
+    func testMalformedLegacySessionDoesNotHideOtherLegacySessions() throws {
+        let fixture = try OpenCodeFixture()
+        defer { fixture.remove() }
+        let dataRoot = fixture.root.appendingPathComponent("data", isDirectory: true)
+        let storage = dataRoot.appendingPathComponent("storage", isDirectory: true)
+        try fixture.makeMalformedLegacySession(
+            at: storage,
+            projectID: "project-1",
+            sessionID: "bad-session"
+        )
+        try fixture.makeLegacySession(
+            at: storage,
+            projectID: "project-1",
+            sessionID: "good-session"
+        )
+
+        let inventory = try OpenCodeSourceAdapter(
+            dataRoot: dataRoot,
+            environment: [:],
+            detectorVersion: "test"
+        ).discover()
+
+        XCTAssertEqual(inventory.records.map(\.stableID), ["legacy|project-1|good-session"])
+        XCTAssertEqual(inventory.warnings.map(\.code), [.malformedRecord])
+    }
+
+    func testSameSessionIDDifferentChannelContentSelectsOneDeterministicRecord() throws {
+        let fixture = try OpenCodeFixture()
+        defer { fixture.remove() }
+        let dataRoot = fixture.root.appendingPathComponent("data", isDirectory: true)
+        try FileManager.default.createDirectory(at: dataRoot, withIntermediateDirectories: true)
+        let primary = dataRoot.appendingPathComponent("opencode.db")
+        let beta = dataRoot.appendingPathComponent("opencode-beta.db")
+        try fixture.makeCurrentDatabase(at: primary, sessionID: "shared-session", text: "primary")
+        try fixture.makeCurrentDatabase(at: beta, sessionID: "shared-session", text: "beta")
+
+        let inventory = try OpenCodeSourceAdapter(
+            dataRoot: dataRoot,
+            environment: [:],
+            detectorVersion: "test"
+        ).discover()
+
+        XCTAssertEqual(inventory.records.count, 1)
+        XCTAssertEqual(
+            inventory.records.first.map { URL(fileURLWithPath: $0.displayPath).lastPathComponent },
+            beta.lastPathComponent
+        )
+        XCTAssertEqual(inventory.warnings.map(\.code), [.duplicateRecord])
+    }
 }
 
 private final class OpenCodeFixture {
@@ -155,14 +278,14 @@ private final class OpenCodeFixture {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     }
 
-    func makeCurrentDatabase(at url: URL, sessionID: String) throws {
+    func makeCurrentDatabase(at url: URL, sessionID: String, text: String = "hello") throws {
         let connection = try SQLiteFixtureConnection(url: url)
         try connection.execute("CREATE TABLE project (id TEXT PRIMARY KEY, worktree TEXT);")
         try connection.execute("CREATE TABLE session (id TEXT PRIMARY KEY, project_id TEXT, directory TEXT, title TEXT, time_created INTEGER, time_updated INTEGER);")
         try connection.execute("CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER, data TEXT);")
         try connection.execute("INSERT INTO project VALUES ('project-1', '/worktree');")
         try connection.execute("INSERT INTO session VALUES ('\(sessionID)', 'project-1', '/session-directory', 'Fixture', 1000, 2000);")
-        try connection.execute("INSERT INTO session_message VALUES ('message-1', '\(sessionID)', 'user', 1, 1000, 1000, '{\"role\":\"user\",\"content\":\"hello\"}');")
+        try connection.execute("INSERT INTO session_message VALUES ('message-1', '\(sessionID)', 'user', 1, 1000, 1000, '{\"role\":\"user\",\"content\":\"\(text)\"}');")
     }
 
     func makeCurrentAndCompatibilityDatabase(at url: URL, currentSessionID: String, compatibilitySessionID: String) throws {
@@ -185,6 +308,18 @@ private final class OpenCodeFixture {
         try connection.execute("CREATE TABLE unrelated (value TEXT);")
     }
 
+    func makeEmptyCurrentDatabase(at url: URL) throws {
+        let connection = try SQLiteFixtureConnection(url: url)
+        try connection.execute("CREATE TABLE session (id TEXT PRIMARY KEY, time_created INTEGER, time_updated INTEGER);")
+        try connection.execute("CREATE TABLE session_message (id TEXT, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER, data TEXT);")
+    }
+
+    func makeIncompleteCurrentDatabase(at url: URL) throws {
+        let connection = try SQLiteFixtureConnection(url: url)
+        try connection.execute("CREATE TABLE session (id TEXT PRIMARY KEY);")
+        try connection.execute("CREATE TABLE session_message (id TEXT, session_id TEXT);")
+    }
+
     func makeLegacySession(at storage: URL, projectID: String, sessionID: String) throws {
         let projectURL = storage.appendingPathComponent("project", isDirectory: true)
             .appendingPathComponent("\(projectID).json")
@@ -205,6 +340,14 @@ private final class OpenCodeFixture {
         try "{\"id\":\"\(sessionID)\",\"messageIds\":[\"message-1\"]}".write(to: sessionURL, atomically: true, encoding: .utf8)
         try "{\"id\":\"message-1\",\"role\":\"user\",\"partIds\":[\"part-1\"]}".write(to: messageURL, atomically: true, encoding: .utf8)
         try "{\"id\":\"part-1\",\"type\":\"text\",\"text\":\"legacy\"}".write(to: partURL, atomically: true, encoding: .utf8)
+    }
+
+    func makeMalformedLegacySession(at storage: URL, projectID: String, sessionID: String) throws {
+        let sessionURL = storage.appendingPathComponent("session", isDirectory: true)
+            .appendingPathComponent(projectID, isDirectory: true)
+            .appendingPathComponent("\(sessionID).json")
+        try FileManager.default.createDirectory(at: sessionURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "not-json".write(to: sessionURL, atomically: true, encoding: .utf8)
     }
 
     func remove() {

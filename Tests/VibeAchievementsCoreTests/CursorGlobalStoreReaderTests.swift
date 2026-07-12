@@ -77,6 +77,71 @@ final class CursorGlobalStoreReaderTests: XCTestCase {
         }
     }
 
+    func testProjectPathDecodesFileURIWorkspaceIdentifier() {
+        let path = CursorConversationNormalizer.projectPath(from: [
+            "workspaceIdentifier": "file:///tmp/My%20Project"
+        ])
+
+        XCTAssertEqual(path, "/tmp/My Project")
+    }
+
+    func testFullConversationHeadersControlBubbleOrder() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = root.appendingPathComponent("state.vscdb")
+        let composer = "composer-headers"
+        let metadata = #"{"composerId":"composer-headers","fullConversationHeadersOnly":[{"bubbleId":"user-z","type":1},{"bubbleId":"assistant-a","type":2}]}"#
+        let user = #"{"type":1,"bubbleId":"user-z","text":"First"}"#
+        let assistant = #"{"type":2,"bubbleId":"assistant-a","text":"Second"}"#
+        try makeDatabase(
+            at: database,
+            composerID: composer,
+            value: metadata,
+            bubbles: [assistant, user],
+            bubbleIDs: ["assistant-a", "user-z"]
+        )
+
+        let parsed = try CursorGlobalStoreReader().parse(ConversationSourceRecord(
+            sourceTool: .cursor,
+            stableID: "cursor:workspace-1:\(composer)",
+            displayPath: database.path,
+            locator: .database(database: database, recordID: "global:\(composer)"),
+            fingerprint: "test"
+        ))
+
+        XCTAssertEqual(parsed.messages.map(\.sourceMessageID), ["user-z", "assistant-a"])
+        XCTAssertEqual(parsed.messages.map(\.text), ["First", "Second"])
+    }
+
+    func testMissingHeaderReferencedBubbleKeepsOtherMessages() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let database = root.appendingPathComponent("state.vscdb")
+        let composer = "composer-missing"
+        let metadata = #"{"composerId":"composer-missing","fullConversationHeadersOnly":[{"bubbleId":"user-1","type":1},{"bubbleId":"missing","type":2}]}"#
+        let user = #"{"type":1,"bubbleId":"user-1","text":"Preserved"}"#
+        try makeDatabase(
+            at: database,
+            composerID: composer,
+            value: metadata,
+            bubbles: [user],
+            bubbleIDs: ["user-1"]
+        )
+
+        let record = ConversationSourceRecord(
+            sourceTool: .cursor,
+            stableID: "cursor:workspace-1:\(composer)",
+            displayPath: database.path,
+            locator: .database(database: database, recordID: "global:\(composer)"),
+            fingerprint: "test"
+        )
+
+        let parsed = try CursorGlobalStoreReader().parse(record)
+
+        XCTAssertEqual(parsed.messages.map(\.sourceMessageID), ["user-1"])
+        XCTAssertEqual(parsed.messages.map(\.text), ["Preserved"])
+    }
+
     private func makeRoot() throws -> URL {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -88,7 +153,8 @@ final class CursorGlobalStoreReaderTests: XCTestCase {
         at url: URL,
         composerID: String,
         value: String,
-        bubbles: [String] = []
+        bubbles: [String] = [],
+        bubbleIDs: [String]? = nil
     ) throws {
         var database: OpaquePointer?
         guard sqlite3_open(url.path, &database) == SQLITE_OK else {
@@ -103,7 +169,8 @@ final class CursorGlobalStoreReaderTests: XCTestCase {
         """
         for (index, bubble) in bubbles.enumerated() {
             let escaped = bubble.replacingOccurrences(of: "'", with: "''")
-            sql += "INSERT INTO cursorDiskKV VALUES ('bubbleId:\(composerID):bubble-\(index)', '\(escaped)');"
+            let bubbleID = bubbleIDs?[index] ?? "bubble-\(index)"
+            sql += "INSERT INTO cursorDiskKV VALUES ('bubbleId:\(composerID):\(bubbleID)', '\(escaped)');"
         }
         guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else { throw CursorFixtureError.sqlite }
     }

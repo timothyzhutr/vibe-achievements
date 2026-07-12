@@ -120,6 +120,52 @@ final class CursorSourceAdapterTests: XCTestCase {
         XCTAssertEqual(inventory.warnings.count, 1)
     }
 
+    func testMixedWorkspaceDatabaseKeepsLegacyComposersMissingFromModernStorage() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let applicationSupport = root.appendingPathComponent("Cursor", isDirectory: true)
+        let workspaceStorage = applicationSupport.appendingPathComponent("User/workspaceStorage/ws-1", isDirectory: true)
+        let projects = root.appendingPathComponent(".cursor/projects", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspaceStorage, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        try makeMixedDatabase(at: workspaceStorage.appendingPathComponent("state.vscdb"))
+
+        let inventory = try CursorSourceAdapter(
+            roots: CursorRoots(applicationSupport: applicationSupport, projects: projects),
+            detectorVersion: "cursor-test"
+        ).discover()
+
+        XCTAssertEqual(Set(inventory.records.map(\.stableID)), [
+            "cursor:ws-1:modern-composer",
+            "cursor:ws-1:legacy-composer"
+        ])
+    }
+
+    func testComposerHeaderUpdateInvalidatesDatabaseRecordFingerprint() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let applicationSupport = root.appendingPathComponent("Cursor", isDirectory: true)
+        let globalStorage = applicationSupport.appendingPathComponent("User/globalStorage", isDirectory: true)
+        let projects = root.appendingPathComponent(".cursor/projects", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalStorage, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        let database = globalStorage.appendingPathComponent("state.vscdb")
+        try makeDatabase(at: database, composerID: "composer-1", workspaceID: "workspace-1")
+        let adapter = CursorSourceAdapter(
+            roots: CursorRoots(applicationSupport: applicationSupport, projects: projects),
+            detectorVersion: "cursor-test"
+        )
+
+        let first = try XCTUnwrap(adapter.discover().records.first)
+        try execute(
+            "UPDATE composerHeaders SET lastUpdatedAt = 3 WHERE composerId = 'composer-1';",
+            on: database
+        )
+        let second = try XCTUnwrap(adapter.discover().records.first)
+
+        XCTAssertNotEqual(first.fingerprint, second.fingerprint)
+    }
+
     private func makeRoot() throws -> URL {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -141,6 +187,36 @@ final class CursorSourceAdapterTests: XCTestCase {
         INSERT INTO cursorDiskKV VALUES ('composerData:\(composerID)', '{}');
         INSERT INTO cursorDiskKV VALUES ('checkpointId:ignored', '{}');
         """
+        guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else { throw FixtureError.sqlite }
+    }
+
+    private func makeMixedDatabase(at url: URL) throws {
+        var database: OpaquePointer?
+        guard sqlite3_open(url.path, &database) == SQLITE_OK else {
+            sqlite3_close(database)
+            throw FixtureError.sqlite
+        }
+        defer { sqlite3_close(database) }
+        let legacy = #"{"allComposers":[{"composerId":"legacy-composer","createdAt":1,"conversation":[{"type":1,"text":"hello"}]}]}"#
+            .replacingOccurrences(of: "'", with: "''")
+        let sql = """
+        CREATE TABLE composerHeaders (composerId TEXT PRIMARY KEY, workspaceId TEXT, createdAt INTEGER, lastUpdatedAt INTEGER, isSubagent INTEGER, checkpointAt INTEGER);
+        CREATE TABLE cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);
+        CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);
+        INSERT INTO composerHeaders VALUES ('modern-composer', 'ws-1', 1, 2, 0, 0);
+        INSERT INTO cursorDiskKV VALUES ('composerData:modern-composer', '{"conversation":[]}');
+        INSERT INTO ItemTable VALUES ('composer.composerData', '\(legacy)');
+        """
+        guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else { throw FixtureError.sqlite }
+    }
+
+    private func execute(_ sql: String, on url: URL) throws {
+        var database: OpaquePointer?
+        guard sqlite3_open(url.path, &database) == SQLITE_OK else {
+            sqlite3_close(database)
+            throw FixtureError.sqlite
+        }
+        defer { sqlite3_close(database) }
         guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else { throw FixtureError.sqlite }
     }
 }

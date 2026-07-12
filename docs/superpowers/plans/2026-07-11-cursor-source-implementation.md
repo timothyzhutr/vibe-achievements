@@ -4,7 +4,7 @@
 
 **Goal:** Add read-only, incremental indexing of regular local Cursor conversations across current global storage, agent transcripts, and legacy workspace storage.
 
-**Architecture:** `CursorSourceAdapter` probes supported generations, emits one prioritized record per conversation, and delegates parsing to focused readers. SQLite access uses the shared query-only helper; exact normalized duplicates are collapsed before indexing.
+**Architecture:** `CursorSourceAdapter` probes supported generations, emits prioritized records, and delegates parsing to focused readers. SQLite discovery uses direct query-only reads while parsing uses consistent snapshots. Same-ID records are prioritized before indexing; cross-generation content deduplication remains deferred.
 
 **Tech Stack:** Swift 6, Foundation JSON, SQLite3, CryptoKit SHA-256, XCTest.
 
@@ -15,7 +15,9 @@ composer storage, agent transcripts, and legacy workspace storage are covered
 by focused fixtures plus an incremental `Indexer` integration test. Discovery
 is conservative when a configured generation is missing; cross-generation
 normalized digest collapse remains a follow-up because stable Cursor IDs differ
-between storage generations.
+between storage generations. Current composer header order and exact bubble-key
+resolution are supported, composer metadata participates in fingerprints, and
+each database discovery pass runs in one direct read transaction.
 
 ---
 

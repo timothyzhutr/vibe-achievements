@@ -4,7 +4,7 @@
 
 **Goal:** Add experimental read-only indexing of documented Antigravity IDE and CLI trajectory JSONL.
 
-**Architecture:** The adapter enumerates only canonical transcript files and parses them as tolerant ordered step unions. Stable reads ignore partial final lines, unknown variants become warnings, and exact IDE/CLI duplicates collapse by normalized content digest.
+**Architecture:** The adapter enumerates only canonical transcript files and parses them as tolerant ordered step unions. Stable reads ignore partial final lines, unknown variants become warnings, and discovery remains metadata-only so periodic scans do not reread unchanged transcripts.
 
 **Tech Stack:** Swift 6, Foundation JSONSerialization/Codable, CryptoKit, XCTest.
 
@@ -12,8 +12,9 @@
 
 Implemented and wired by default through the shared registry and Settings UI.
 Canonical IDE/CLI trajectory discovery, tolerant parsing, partial-record
-handling, stable-read retries, exact duplicate preference, and incremental
-indexing are covered by focused fixtures and integration tests. The local brain
+handling, stable-read retries, metadata-only discovery, and incremental indexing
+are covered by focused fixtures and integration tests. IDE/CLI imported copies
+remain distinct until cross-source incremental deduplication is available. The local brain
 directories were empty, so the validation fixture is synthetic.
 
 ---
@@ -64,15 +65,15 @@ for (ordinal, line) in completeLines.enumerated() {
 - [ ] Run focused tests; expect valid history before the partial line and correct roles/order.
 - [ ] Commit with `git commit -m "Parse Antigravity trajectory JSONL"`.
 
-### Task 3: Handle Concurrent Writes And Exact Duplicates
+### Task 3: Handle Concurrent Writes Without Full Discovery Reads
 
 **Files:**
 - Modify: `Sources/VibeAchievementsCore/AntigravitySourceAdapter.swift`
 - Modify: `Sources/VibeAchievementsCore/AntigravityParser.swift`
 - Modify: `Tests/VibeAchievementsCoreTests/AntigravitySourceAdapterTests.swift`
 
-- [ ] Write failing tests where size/mtime changes during read and where IDE/CLI records normalize to identical role/text sequences.
-- [ ] Implement one stable-read retry and `recordChangedDuringRead` after the second change. Compute local SHA-256 over normalized role/text order and prefer IDE for exact duplicates.
+- [x] Write failing tests where size/mtime changes during read and where discovery attempts to read transcript contents.
+- [x] Implement one stable-read retry and `recordChangedDuringRead` after the second change. Keep discovery metadata-only and preserve separate IDE/CLI records even when one may be an imported copy.
 
 ```swift
 func stableData(at url: URL) throws -> Data {
@@ -85,9 +86,9 @@ func stableData(at url: URL) throws -> Data {
     fatalError("unreachable")
 }
 ```
-- [ ] Prove prefix-only forks remain distinct and document this expected V1 behavior in the test name.
-- [ ] Run Antigravity tests; expect PASS.
-- [ ] Commit with `git commit -m "Stabilize Antigravity transcript ingestion"`.
+- [x] Prove prefix-only forks remain distinct and document this expected V1 behavior in the test name.
+- [x] Run Antigravity tests; expect PASS.
+- [x] Commit with `git commit -m "Stabilize Antigravity transcript ingestion"`.
 
 ### Task 4: Add Settings, Registry, And Validation Gate
 

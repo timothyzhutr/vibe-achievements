@@ -1,5 +1,4 @@
 import Foundation
-import CryptoKit
 
 enum OpenCodeSourceIdentity {
     static let sourceTool: SourceTool = .openCode
@@ -220,13 +219,6 @@ enum OpenCodeSupport {
         return ParsedTranscript(thread: thread, messages: messages)
     }
 
-    static func normalizedDigest(_ transcript: ParsedTranscript) -> String {
-        let value = transcript.messages
-            .map { "\($0.role.rawValue)\u{1F}\($0.text)" }
-            .joined(separator: "\u{1E}")
-        let digest = SHA256.hash(data: Data(value.utf8))
-        return digest.map { String(format: "%02x", $0) }.joined()
-    }
 }
 
 public struct OpenCodeSourceAdapter: ConversationSourceAdapter {
@@ -263,8 +255,25 @@ public struct OpenCodeSourceAdapter: ConversationSourceAdapter {
         var records: [ConversationSourceRecord] = []
         var sqliteSessionIDs = Set<String>()
         var databaseRecords: [ConversationSourceRecord] = []
+        let databases: [URL]
 
-        for databaseURL in databaseURLs() {
+        do {
+            databases = try databaseURLs()
+        } catch {
+            return SourceInventory(
+                records: [],
+                warnings: [SourceWarning(
+                    sourceTool: sourceTool,
+                    recordID: dataRoot.path,
+                    code: .permissionDenied,
+                    message: "Could not enumerate OpenCode data root: \(error)"
+                )],
+                detectedRoots: [dataRoot],
+                isComplete: false
+            )
+        }
+
+        for databaseURL in databases {
             do {
                 let result = try discoverDatabase(at: databaseURL)
                 databaseRecords.append(contentsOf: result.records)
@@ -274,7 +283,9 @@ public struct OpenCodeSourceAdapter: ConversationSourceAdapter {
                 warnings.append(SourceWarning(
                     sourceTool: sourceTool,
                     recordID: databaseURL.path,
-                    code: error is ReadOnlySQLiteSnapshot.Error ? .sourceBusy : .schemaUnsupported,
+                    code: (error as? ReadOnlySQLiteSnapshot.Error) == .busy
+                        ? .sourceBusy
+                        : .schemaUnsupported,
                     message: "Could not inspect \(databaseURL.path): \(error)"
                 ))
             }
@@ -285,11 +296,12 @@ public struct OpenCodeSourceAdapter: ConversationSourceAdapter {
         let storageRoot = dataRoot.appendingPathComponent("storage", isDirectory: true)
         if isDirectory(storageRoot) {
             do {
-                let legacyRecords = try discoverLegacyRecords(
+                let legacyResult = try discoverLegacyRecords(
                     storageRoot: storageRoot,
                     excludedSessionIDs: sqliteSessionIDs
                 )
-                records.append(contentsOf: legacyRecords)
+                records.append(contentsOf: legacyResult.records)
+                warnings.append(contentsOf: legacyResult.warnings)
             } catch {
                 warnings.append(SourceWarning(
                     sourceTool: sourceTool,
@@ -345,30 +357,38 @@ public struct OpenCodeSourceAdapter: ConversationSourceAdapter {
         let warnings: [SourceWarning]
     }
 
-    private func databaseURLs() -> [URL] {
+    private struct LegacyDiscoveryResult {
+        let records: [ConversationSourceRecord]
+        let warnings: [SourceWarning]
+    }
+
+    private func databaseURLs() throws -> [URL] {
         var urls: [URL] = []
         if let override = environment["OPENCODE_DB"], !override.isEmpty {
             let url = URL(fileURLWithPath: override, relativeTo: dataRoot).standardizedFileURL
+            guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
+                throw SourceDiscoveryError.unavailable(path: url.path)
+            }
             urls.append(url)
         }
         urls.append(dataRoot.appendingPathComponent("opencode.db"))
-        if let entries = try? FileManager.default.contentsOfDirectory(
+        let entries = try FileManager.default.contentsOfDirectory(
             at: dataRoot,
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
-        ) {
-            urls.append(contentsOf: entries.filter { url in
-                url.lastPathComponent.hasPrefix("opencode-")
-                    && url.pathExtension == "db"
-                    && isRegularFile(url)
-            }.sorted { $0.path < $1.path })
+        )
+        for url in entries.sorted(by: { $0.path < $1.path })
+        where url.lastPathComponent.hasPrefix("opencode-") && url.pathExtension == "db" {
+            if try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true {
+                urls.append(url)
+            }
         }
         var seen = Set<URL>()
         return urls.filter { seen.insert($0.standardizedFileURL).inserted && isRegularFile($0) }
     }
 
     private func discoverDatabase(at databaseURL: URL) throws -> DatabaseDiscoveryResult {
-        let snapshot = try ReadOnlySQLiteSnapshot(sourceURL: databaseURL)
+        let snapshot = try ReadOnlySQLiteSnapshot(sourceURL: databaseURL, strategy: .direct)
         let result = try snapshot.withReadTransaction { transaction -> DatabaseDiscoveryResult in
             let tables = try Set(transaction.stringRows(
                 sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('session', 'session_message', 'message', 'part', 'project', 'project_directory');"
@@ -384,7 +404,8 @@ public struct OpenCodeSourceAdapter: ConversationSourceAdapter {
             let compatibilityIDs = tables.contains("message") && tables.contains("part")
                 ? Set(try transaction.stringRows(sql: "SELECT DISTINCT session_id FROM message WHERE session_id IS NOT NULL ORDER BY session_id;").compactMap { $0.first })
                 : []
-            guard !currentIDs.isEmpty || !compatibilityIDs.isEmpty else {
+            guard tables.contains("session_message")
+                    || tables.contains("message") && tables.contains("part") else {
                 throw AdapterError.unsupportedSchema
             }
 
@@ -444,9 +465,14 @@ public struct OpenCodeSourceAdapter: ConversationSourceAdapter {
         return "\(detectorVersion)-\(generation.rawValue)-\(databaseURL.path)-\(sessionID)-\(sessionMetadata)-\(aggregate.compactMap { $0 }.joined(separator: ":"))"
     }
 
-    private func discoverLegacyRecords(storageRoot: URL, excludedSessionIDs: Set<String>) throws -> [ConversationSourceRecord] {
+    private func discoverLegacyRecords(
+        storageRoot: URL,
+        excludedSessionIDs: Set<String>
+    ) throws -> LegacyDiscoveryResult {
         let sessionRoot = storageRoot.appendingPathComponent("session", isDirectory: true)
-        guard isDirectory(sessionRoot) else { return [] }
+        guard isDirectory(sessionRoot) else {
+            return LegacyDiscoveryResult(records: [], warnings: [])
+        }
         let projects = try FileManager.default.contentsOfDirectory(
             at: sessionRoot,
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -454,6 +480,7 @@ public struct OpenCodeSourceAdapter: ConversationSourceAdapter {
         ).filter { isDirectory($0) }.sorted { $0.path < $1.path }
 
         var records: [ConversationSourceRecord] = []
+        var warnings: [SourceWarning] = []
         for projectURL in projects {
             let projectID = projectURL.lastPathComponent
             let sessions = try FileManager.default.contentsOfDirectory(
@@ -464,22 +491,31 @@ public struct OpenCodeSourceAdapter: ConversationSourceAdapter {
             for sessionURL in sessions {
                 let sessionID = sessionURL.deletingPathExtension().lastPathComponent
                 guard !excludedSessionIDs.contains(sessionID) else { continue }
-                let fingerprint = try OpenCodeLegacyStoreReader().fingerprint(
-                    storageRoot: storageRoot,
-                    projectID: projectID,
-                    sessionID: sessionID,
-                    detectorVersion: detectorVersion
-                )
-                records.append(ConversationSourceRecord(
-                    sourceTool: sourceTool,
-                    stableID: OpenCodeRecordID.legacy(projectID: projectID, sessionID: sessionID),
-                    displayPath: sessionURL.path,
-                    locator: .directory(root: storageRoot, recordID: OpenCodeRecordID.legacy(projectID: projectID, sessionID: sessionID)),
-                    fingerprint: fingerprint
-                ))
+                do {
+                    let fingerprint = try OpenCodeLegacyStoreReader().fingerprint(
+                        storageRoot: storageRoot,
+                        projectID: projectID,
+                        sessionID: sessionID,
+                        detectorVersion: detectorVersion
+                    )
+                    records.append(ConversationSourceRecord(
+                        sourceTool: sourceTool,
+                        stableID: OpenCodeRecordID.legacy(projectID: projectID, sessionID: sessionID),
+                        displayPath: sessionURL.path,
+                        locator: .directory(root: storageRoot, recordID: OpenCodeRecordID.legacy(projectID: projectID, sessionID: sessionID)),
+                        fingerprint: fingerprint
+                    ))
+                } catch {
+                    warnings.append(SourceWarning(
+                        sourceTool: sourceTool,
+                        recordID: OpenCodeRecordID.legacy(projectID: projectID, sessionID: sessionID),
+                        code: .malformedRecord,
+                        message: "Could not inspect legacy OpenCode session at \(sessionURL.path)"
+                    ))
+                }
             }
         }
-        return records
+        return LegacyDiscoveryResult(records: records, warnings: warnings)
     }
 
     private func selectPreferredDatabaseRecords(
@@ -511,26 +547,16 @@ public struct OpenCodeSourceAdapter: ConversationSourceAdapter {
                 continue
             }
 
-            var digestToRecord: [String: ConversationSourceRecord] = [:]
-            for record in preferred {
-                do {
-                    let parsed = try parse(record)
-                    let digest = OpenCodeSupport.normalizedDigest(parsed)
-                    if digestToRecord[digest] == nil {
-                        digestToRecord[digest] = record
-                    } else {
-                        warnings.append(SourceWarning(
-                            sourceTool: sourceTool,
-                            recordID: record.stableID,
-                            code: .duplicateRecord,
-                            message: "Ignored duplicate OpenCode session content from \(record.displayPath)"
-                        ))
-                    }
-                } catch {
-                    selected.append(record)
-                }
+            let owner = preferred[0]
+            selected.append(owner)
+            for record in preferred.dropFirst() {
+                warnings.append(SourceWarning(
+                    sourceTool: sourceTool,
+                    recordID: record.stableID,
+                    code: .duplicateRecord,
+                    message: "Ignored duplicate OpenCode session ID from \(record.displayPath); using \(owner.displayPath)"
+                ))
             }
-            selected.append(contentsOf: digestToRecord.values)
         }
         return selected
     }

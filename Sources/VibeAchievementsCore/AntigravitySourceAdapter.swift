@@ -122,7 +122,6 @@ public struct AntigravitySourceAdapter: ConversationSourceAdapter {
         var candidateRecords: [Candidate] = []
         var detectedRoots: [URL] = []
         var isComplete = true
-        var warnings: [SourceWarning] = []
 
         for root in roots {
             guard isDirectory(root.url) else {
@@ -133,68 +132,9 @@ public struct AntigravitySourceAdapter: ConversationSourceAdapter {
             candidateRecords.append(contentsOf: try candidates(in: root))
         }
 
-        var selected: [Candidate] = []
-        var digestOwners: [String: Candidate] = [:]
-        for candidate in candidateRecords.sorted(by: candidateSort) {
-            let digest: String?
-            var shouldKeepRecord = true
-            do {
-                let data = try stableReader(candidate.url)
-                let result = try AntigravityParser.parse(
-                    data: data,
-                    sourceTool: sourceTool,
-                    threadID: candidate.record.stableID,
-                    sourcePath: candidate.url.path
-                )
-                shouldKeepRecord = !result.transcript.messages.isEmpty
-                digest = result.transcript.messages.isEmpty
-                    ? nil
-                    : AntigravityParser.normalizedDigest(for: result.transcript)
-                warnings.append(contentsOf: result.warnings.map { warning in
-                    SourceWarning(
-                        sourceTool: sourceTool,
-                        recordID: candidate.record.stableID,
-                        code: .malformedRecord,
-                        message: "Ignored Antigravity trajectory content near line \(warning.lineNumber)"
-                    )
-                })
-            } catch AntigravityReadError.recordChangedDuringRead {
-                digest = nil
-                warnings.append(SourceWarning(
-                    sourceTool: sourceTool,
-                    recordID: candidate.record.stableID,
-                    code: .recordChangedDuringRead,
-                    message: "Antigravity transcript changed while it was being read"
-                ))
-            } catch {
-                digest = nil
-                warnings.append(SourceWarning(
-                    sourceTool: sourceTool,
-                    recordID: candidate.record.stableID,
-                    code: .malformedRecord,
-                    message: "Could not inspect Antigravity transcript"
-                ))
-            }
-
-            guard shouldKeepRecord else { continue }
-            if let digest, let owner = digestOwners[digest] {
-                warnings.append(SourceWarning(
-                    sourceTool: sourceTool,
-                    recordID: candidate.record.stableID,
-                    code: .duplicateRecord,
-                    message: "Ignored CLI duplicate of IDE transcript \(owner.record.stableID)"
-                ))
-                continue
-            }
-            selected.append(candidate)
-            if let digest {
-                digestOwners[digest] = candidate
-            }
-        }
-
         return SourceInventory(
-            records: selected.map(\.record),
-            warnings: warnings,
+            records: candidateRecords.sorted(by: candidateSort).map(\.record),
+            warnings: [],
             detectedRoots: detectedRoots,
             isComplete: isComplete
         )
@@ -205,12 +145,16 @@ public struct AntigravitySourceAdapter: ConversationSourceAdapter {
             throw ConversationSourceAdapterError.invalidRecord
         }
         let data = try stableReader(url)
-        return try AntigravityParser.parse(
+        let result = try AntigravityParser.parse(
             data: data,
             sourceTool: sourceTool,
             threadID: record.stableID,
             sourcePath: url.path
-        ).transcript
+        )
+        guard !result.transcript.messages.isEmpty else {
+            throw ConversationSourceAdapterError.unsupportedRecord
+        }
+        return result.transcript
     }
 
     private func candidates(in root: Root) throws -> [Candidate] {

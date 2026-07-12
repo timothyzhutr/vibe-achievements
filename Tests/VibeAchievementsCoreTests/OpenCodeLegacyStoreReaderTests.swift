@@ -70,6 +70,46 @@ final class OpenCodeLegacyStoreReaderTests: XCTestCase {
             XCTAssertEqual(error as? OpenCodeLegacyStoreReader.Error, .recordChangedDuringRead)
         }
     }
+
+    func testUsesLegacyDirectoryLayoutWhenJSONOmitsChildIDLists() throws {
+        let fixture = try LegacyFixture()
+        defer { fixture.remove() }
+        try fixture.writeProject()
+        try fixture.writeSessionWithoutMessageIDs()
+        try fixture.writeMessageWithoutPartIDs(id: "message-1", role: "user", time: 1000)
+        try fixture.writePart(id: "part-1", messageID: "message-1", time: 1000, type: "text", text: "directory linked")
+
+        let parsed = try OpenCodeLegacyStoreReader().parse(
+            storageRoot: fixture.storage,
+            projectID: fixture.projectID,
+            sessionID: fixture.sessionID
+        )
+
+        XCTAssertEqual(parsed.messages.map(\.sourceMessageID), ["message-1"])
+        XCTAssertEqual(parsed.messages.map(\.text), ["directory linked"])
+    }
+
+    func testUnreadableChildContainerDoesNotBecomeAnEmptyTranscript() throws {
+        let fixture = try LegacyFixture()
+        defer { fixture.remove() }
+        try fixture.writeProject()
+        try fixture.writeSessionWithoutMessageIDs()
+        let messageContainer = fixture.storage.appendingPathComponent(
+            "message/\(fixture.sessionID)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: messageContainer.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "not-a-directory".write(to: messageContainer, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try OpenCodeLegacyStoreReader().parse(
+            storageRoot: fixture.storage,
+            projectID: fixture.projectID,
+            sessionID: fixture.sessionID
+        ))
+    }
 }
 
 private final class LegacyFixture {
@@ -99,9 +139,23 @@ private final class LegacyFixture {
         )
     }
 
+    func writeSessionWithoutMessageIDs() throws {
+        try writeOpenCodeJSON(
+            ["id": sessionID, "directory": "/session/fallback"],
+            to: storage.appendingPathComponent("session/\(projectID)/\(sessionID).json")
+        )
+    }
+
     func writeMessage(id: String, role: String, time: Int, partIDs: [String]) throws {
         try writeOpenCodeJSON(
             ["id": id, "role": role, "time_created": time, "partIds": partIDs],
+            to: messageURL(id)
+        )
+    }
+
+    func writeMessageWithoutPartIDs(id: String, role: String, time: Int) throws {
+        try writeOpenCodeJSON(
+            ["id": id, "role": role, "time_created": time],
             to: messageURL(id)
         )
     }

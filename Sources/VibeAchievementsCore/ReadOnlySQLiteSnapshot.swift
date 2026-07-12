@@ -4,6 +4,11 @@ import SQLite3
 // The database handle and transaction state are only accessed while holding
 // transactionScopeLock after initialization.
 public final class ReadOnlySQLiteSnapshot: @unchecked Sendable {
+    public enum Strategy: Sendable {
+        case snapshot
+        case direct
+    }
+
     public enum Error: Swift.Error, Equatable {
         case openFailed
         case prepareFailed
@@ -151,22 +156,38 @@ public final class ReadOnlySQLiteSnapshot: @unchecked Sendable {
 
     let temporaryDatabaseURL: URL
 
-    private let temporaryDirectoryURL: URL
+    private let temporaryDirectoryURL: URL?
     private let transactionScopeLock = NSRecursiveLock()
     private var database: OpaquePointer?
     private var transactionActive = false
 
     public init(
         sourceURL: URL,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        strategy: Strategy = .snapshot
     ) throws {
-        temporaryDirectoryURL = temporaryDirectory
+        if strategy == .direct {
+            temporaryDirectoryURL = nil
+            temporaryDatabaseURL = sourceURL
+            do {
+                database = try Self.openReadOnly(at: sourceURL)
+                try Self.configureReadOnly(database)
+            } catch {
+                sqlite3_close(database)
+                database = nil
+                throw error
+            }
+            return
+        }
+
+        let snapshotDirectoryURL = temporaryDirectory
             .appendingPathComponent("ReadOnlySQLiteSnapshot-\(UUID().uuidString)", isDirectory: true)
-        temporaryDatabaseURL = temporaryDirectoryURL.appendingPathComponent("snapshot.sqlite")
+        temporaryDirectoryURL = snapshotDirectoryURL
+        temporaryDatabaseURL = snapshotDirectoryURL.appendingPathComponent("snapshot.sqlite")
 
         do {
             try FileManager.default.createDirectory(
-                at: temporaryDirectoryURL,
+                at: snapshotDirectoryURL,
                 withIntermediateDirectories: true
             )
         } catch {
@@ -180,14 +201,16 @@ public final class ReadOnlySQLiteSnapshot: @unchecked Sendable {
         } catch {
             sqlite3_close(database)
             database = nil
-            try? FileManager.default.removeItem(at: temporaryDirectoryURL)
+            try? FileManager.default.removeItem(at: snapshotDirectoryURL)
             throw error
         }
     }
 
     deinit {
         sqlite3_close(database)
-        try? FileManager.default.removeItem(at: temporaryDirectoryURL)
+        if let temporaryDirectoryURL {
+            try? FileManager.default.removeItem(at: temporaryDirectoryURL)
+        }
     }
 
     public func withReadTransaction<Result>(

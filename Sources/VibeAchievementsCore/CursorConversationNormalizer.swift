@@ -100,7 +100,12 @@ enum CursorConversationNormalizer {
     }
 
     private static func firstPath(_ value: Any?) -> String? {
-        if let string = value as? String, string.hasPrefix("/") { return string }
+        if let string = value as? String {
+            if string.hasPrefix("/") { return string }
+            if let url = URL(string: string), url.isFileURL {
+                return url.standardizedFileURL.path
+            }
+        }
         if let dictionary = value as? [String: Any] {
             for key in ["uri", "path", "folder", "workspaceFolder"] {
                 if let path = firstPath(dictionary[key]) { return path }
