@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if settingsWindow == nil {
             settingsWindow = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(state: appState)))
             settingsWindow?.title = "Settings"
-            settingsWindow?.setContentSize(NSSize(width: 560, height: 360))
+            settingsWindow?.setContentSize(NSSize(width: 620, height: 640))
             settingsWindow?.isReleasedWhenClosed = false
         }
         NSApp.activate(ignoringOtherApps: true)
