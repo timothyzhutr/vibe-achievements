@@ -46,6 +46,36 @@ final class AppStateTests: XCTestCase {
         XCTAssertTrue(summary.contains("Codex: unavailable"))
     }
 
+    @MainActor
+    func testPublishesLatestStatusBySourceTool() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        let state = AppState(
+            storePath: NSTemporaryDirectory() + UUID().uuidString + ".sqlite",
+            sourceSettingsDefaults: defaults
+        )
+        let claudeStatus = ConversationSourceStatus(
+            sourceTool: .claudeCode,
+            displayName: "Claude Code",
+            state: .connected,
+            recordCount: 3,
+            warningCount: 0
+        )
+        let cursorStatus = ConversationSourceStatus(
+            sourceTool: .cursor,
+            displayName: "Cursor",
+            state: .needsAttention,
+            recordCount: 1,
+            warningCount: 2
+        )
+
+        state.applySourceStatuses([claudeStatus, cursorStatus])
+
+        XCTAssertEqual(state.sourceStatuses, [
+            .claudeCode: claudeStatus,
+            .cursor: cursorStatus
+        ])
+    }
+
     func testNotificationStateIsMarkedOnlyWhenNotificationsCanSchedule() {
         XCTAssertFalse(AppState.shouldMarkNotificationsDelivered(notify: false, notificationsAvailable: true, pendingCount: 1))
         XCTAssertFalse(AppState.shouldMarkNotificationsDelivered(notify: true, notificationsAvailable: false, pendingCount: 1))

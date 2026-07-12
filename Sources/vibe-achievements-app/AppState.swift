@@ -5,6 +5,7 @@ import VibeAchievementsCore
 @MainActor
 final class AppState: ObservableObject {
     @Published var sourceSummary: String = "Refreshing sources"
+    @Published var sourceStatuses: [SourceTool: ConversationSourceStatus] = [:]
     @Published var recentUnlocks: [AchievementUnlock] = []
     @Published var achievementContracts: [AchievementContract] = []
     @Published var lastScanSummary: String = "Loading indexed history"
@@ -67,11 +68,19 @@ final class AppState: ObservableObject {
         update(&copy)
         sourceSettings = copy
         copy.save(to: sourceSettingsDefaults)
+        sourceStatuses = [:]
         scanNow()
+    }
+
+    func applySourceStatuses(_ statuses: [ConversationSourceStatus]) {
+        sourceStatuses = statuses.reduce(into: [:]) { statusesByTool, status in
+            statusesByTool[status.sourceTool] = status
+        }
     }
 
     private func apply(_ result: ScanResult) {
         sourceSummary = result.sourceSummary
+        applySourceStatuses(result.sourceStatuses)
         lastScanSummary = result.lastScanSummary
         lastError = result.error
         achievementContracts = result.achievementContracts
@@ -106,6 +115,7 @@ final class AppState: ObservableObject {
 /// `Sendable` so it can cross the actor boundary safely.
 private struct ScanResult: Sendable {
     var sourceSummary: String
+    var sourceStatuses: [ConversationSourceStatus]
     var lastScanSummary: String
     var achievementContracts: [AchievementContract]
     var recentUnlocks: [AchievementUnlock]?
@@ -162,6 +172,7 @@ extension AppState {
             let recent = try store.allUnlocks()
             return ScanResult(
                 sourceSummary: sourceSummary(for: statuses),
+                sourceStatuses: statuses,
                 lastScanSummary: scanSummary(
                     changedFileCount: indexResult.changedRecordCount,
                     newUnlockCount: indexResult.unlocks.count
@@ -174,6 +185,7 @@ extension AppState {
             let message = String(describing: error)
             return ScanResult(
                 sourceSummary: sourceSummary(for: failureStatuses),
+                sourceStatuses: failureStatuses,
                 lastScanSummary: "Scan failed",
                 achievementContracts: [],
                 recentUnlocks: nil,
