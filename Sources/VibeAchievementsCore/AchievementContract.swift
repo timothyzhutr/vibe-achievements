@@ -34,7 +34,16 @@ public enum AchievementContractLoader {
         }
     }
 
-    public static func loadBundledV1() throws -> [AchievementContract] {
+    public static func loadBundledV1(
+        mainResourceURL: URL? = Bundle.main.resourceURL
+    ) throws -> [AchievementContract] {
+        let packagedURL = mainResourceURL?
+            .appendingPathComponent("vibe-achievements_VibeAchievementsCore.bundle", isDirectory: true)
+            .appendingPathComponent("achievement-trigger-contracts-v1.jsonl")
+        if let packagedURL, FileManager.default.isReadableFile(atPath: packagedURL.path) {
+            return try load(jsonlURL: packagedURL)
+        }
+
         guard let url = Bundle.module.url(
             forResource: "achievement-trigger-contracts-v1",
             withExtension: "jsonl"
