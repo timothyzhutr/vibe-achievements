@@ -7,6 +7,7 @@ public final class ReadOnlySQLiteSnapshot: @unchecked Sendable {
     public enum Strategy: Sendable {
         case snapshot
         case direct
+        case immutable
     }
 
     public enum Error: Swift.Error, Equatable {
@@ -166,11 +167,11 @@ public final class ReadOnlySQLiteSnapshot: @unchecked Sendable {
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         strategy: Strategy = .snapshot
     ) throws {
-        if strategy == .direct {
+        if strategy == .direct || strategy == .immutable {
             temporaryDirectoryURL = nil
             temporaryDatabaseURL = sourceURL
             do {
-                database = try Self.openReadOnly(at: sourceURL)
+                database = try Self.openReadOnly(at: sourceURL, immutable: strategy == .immutable)
                 try Self.configureReadOnly(database)
             } catch {
                 sqlite3_close(database)
@@ -275,9 +276,18 @@ public final class ReadOnlySQLiteSnapshot: @unchecked Sendable {
         try executeControl("PRAGMA journal_mode=DELETE;", on: destination)
     }
 
-    private static func openReadOnly(at url: URL) throws -> OpaquePointer {
+    private static func openReadOnly(at url: URL, immutable: Bool = false) throws -> OpaquePointer {
         var database: OpaquePointer?
-        let result = sqlite3_open_v2(url.path, &database, SQLITE_OPEN_READONLY, nil)
+        let filename: String
+        let flags: Int32
+        if immutable {
+            filename = url.absoluteString + (url.absoluteString.contains("?") ? "&immutable=1" : "?immutable=1")
+            flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_URI
+        } else {
+            filename = url.path
+            flags = SQLITE_OPEN_READONLY
+        }
+        let result = sqlite3_open_v2(filename, &database, flags, nil)
         guard result == SQLITE_OK, let database else {
             sqlite3_close(database)
             throw mappedError(result, fallback: .openFailed)

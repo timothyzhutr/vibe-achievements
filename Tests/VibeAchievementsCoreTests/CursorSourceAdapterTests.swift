@@ -120,6 +120,34 @@ final class CursorSourceAdapterTests: XCTestCase {
         XCTAssertEqual(inventory.warnings.count, 1)
     }
 
+    func testSidecarFreeWALWorkspaceDatabaseIsReadAsInactiveHistory() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let applicationSupport = root.appendingPathComponent("Cursor", isDirectory: true)
+        let workspaceStorage = applicationSupport.appendingPathComponent("User/workspaceStorage/stale-wal", isDirectory: true)
+        let projects = root.appendingPathComponent(".cursor/projects", isDirectory: true)
+        try FileManager.default.createDirectory(at: workspaceStorage, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+        let database = workspaceStorage.appendingPathComponent("state.vscdb")
+        try makeDatabase(
+            at: database,
+            composerID: "inactive-composer",
+            workspaceID: "stale-wal",
+            journalModeWAL: true
+        )
+        try? FileManager.default.removeItem(atPath: database.path + "-wal")
+        try? FileManager.default.removeItem(atPath: database.path + "-shm")
+
+        let inventory = try CursorSourceAdapter(
+            roots: CursorRoots(applicationSupport: applicationSupport, projects: projects),
+            detectorVersion: "cursor-test"
+        ).discover()
+
+        XCTAssertTrue(inventory.isComplete)
+        XCTAssertTrue(inventory.warnings.isEmpty)
+        XCTAssertEqual(inventory.records.map(\.stableID), ["cursor:stale-wal:inactive-composer"])
+    }
+
     func testMixedWorkspaceDatabaseKeepsLegacyComposersMissingFromModernStorage() throws {
         let root = try makeRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -173,7 +201,12 @@ final class CursorSourceAdapterTests: XCTestCase {
         return root
     }
 
-    private func makeDatabase(at url: URL, composerID: String, workspaceID: String) throws {
+    private func makeDatabase(
+        at url: URL,
+        composerID: String,
+        workspaceID: String,
+        journalModeWAL: Bool = false
+    ) throws {
         var database: OpaquePointer?
         guard sqlite3_open(url.path, &database) == SQLITE_OK else {
             sqlite3_close(database)
@@ -181,6 +214,7 @@ final class CursorSourceAdapterTests: XCTestCase {
         }
         defer { sqlite3_close(database) }
         let sql = """
+        \(journalModeWAL ? "PRAGMA journal_mode=WAL;" : "")
         CREATE TABLE composerHeaders (composerId TEXT PRIMARY KEY, workspaceId TEXT, createdAt INTEGER, lastUpdatedAt INTEGER, isArchived INTEGER, isSubagent INTEGER, recency INTEGER, checkpointAt INTEGER, value TEXT);
         CREATE TABLE cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);
         INSERT INTO composerHeaders VALUES ('\(composerID)', '\(workspaceID)', 1, 2, 0, 0, 2, 0, '{}');

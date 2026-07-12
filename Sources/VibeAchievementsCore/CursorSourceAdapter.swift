@@ -119,7 +119,25 @@ public struct CursorSourceAdapter: ConversationSourceAdapter {
     }
 
     private func databaseRecords(at url: URL, generation: String) throws -> [ConversationSourceRecord] {
-        let snapshot = try ReadOnlySQLiteSnapshot(sourceURL: url, strategy: .direct)
+        do {
+            return try readDatabaseRecords(at: url, generation: generation, strategy: .direct)
+        } catch {
+            let wal = URL(fileURLWithPath: url.path + "-wal")
+            let shm = URL(fileURLWithPath: url.path + "-shm")
+            guard !FileManager.default.fileExists(atPath: wal.path),
+                  !FileManager.default.fileExists(atPath: shm.path) else {
+                throw error
+            }
+            return try readDatabaseRecords(at: url, generation: generation, strategy: .immutable)
+        }
+    }
+
+    private func readDatabaseRecords(
+        at url: URL,
+        generation: String,
+        strategy: ReadOnlySQLiteSnapshot.Strategy
+    ) throws -> [ConversationSourceRecord] {
+        let snapshot = try ReadOnlySQLiteSnapshot(sourceURL: url, strategy: strategy)
         return try snapshot.withReadTransaction { transaction in
             let rows = try transaction.stringRows(sql: """
             SELECT name FROM sqlite_master
