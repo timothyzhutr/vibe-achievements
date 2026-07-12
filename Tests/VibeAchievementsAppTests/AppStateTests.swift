@@ -3,6 +3,29 @@ import XCTest
 import VibeAchievementsCore
 
 final class AppStateTests: XCTestCase {
+    @MainActor
+    func testStartupLoadsCachedAchievementsBeforeRescanCompletes() throws {
+        let path = NSTemporaryDirectory() + UUID().uuidString + ".sqlite"
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        let store = try SQLiteStore(path: path)
+        try store.insert(unlock: AchievementUnlock(
+            achievementID: "actually_wait",
+            name: "Actually, Wait",
+            projectKey: "/tmp/project",
+            threadID: "codex:thread",
+            unlockedAt: Date(timeIntervalSince1970: 1_000),
+            triggerSummary: "Changed direction."
+        ))
+
+        let state = AppState(storePath: path, sourceSettingsDefaults: defaults)
+
+        XCTAssertFalse(state.achievementContracts.isEmpty)
+        XCTAssertEqual(state.recentUnlocks.map(\.achievementID), ["actually_wait"])
+        XCTAssertEqual(state.sourceSummary, "Refreshing sources")
+        XCTAssertEqual(state.lastScanSummary, "Loaded 1 cached achievement")
+    }
+
     func testFingerprintIncludesDetectorVersion() throws {
         let url = URL(fileURLWithPath: NSTemporaryDirectory() + UUID().uuidString + ".jsonl")
         try "hello".write(to: url, atomically: true, encoding: .utf8)

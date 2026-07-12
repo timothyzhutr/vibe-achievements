@@ -4,10 +4,10 @@ import VibeAchievementsCore
 
 @MainActor
 final class AppState: ObservableObject {
-    @Published var sourceSummary: String = "Not indexed yet"
+    @Published var sourceSummary: String = "Refreshing sources"
     @Published var recentUnlocks: [AchievementUnlock] = []
     @Published var achievementContracts: [AchievementContract] = []
-    @Published var lastScanSummary: String = "No scan yet"
+    @Published var lastScanSummary: String = "Loading indexed history"
     @Published var lastError: String?
     @Published var sourceSettings: AppSourceSettings
 
@@ -24,6 +24,7 @@ final class AppState: ObservableObject {
         self.storePath = storePath
         self.sourceSettingsDefaults = sourceSettingsDefaults
         self.sourceSettings = AppSourceSettings.load(from: sourceSettingsDefaults)
+        loadCachedShelf()
     }
 
     /// Called once the notification-permission prompt is answered. Enables
@@ -86,6 +87,18 @@ final class AppState: ObservableObject {
             .appendingPathComponent("VibeAchievements", isDirectory: true)
             .appendingPathComponent("vibe-achievements.sqlite")
             .path
+    }
+
+    private func loadCachedShelf() {
+        do {
+            achievementContracts = try AchievementContractLoader.loadBundledV1()
+            guard FileManager.default.fileExists(atPath: storePath) else { return }
+            recentUnlocks = try SQLiteStore(path: storePath).allUnlocks()
+            guard !recentUnlocks.isEmpty else { return }
+            lastScanSummary = "Loaded \(recentUnlocks.count) cached achievement\(recentUnlocks.count == 1 ? "" : "s")"
+        } catch {
+            lastError = "Could not load cached achievements: \(error)"
+        }
     }
 }
 
