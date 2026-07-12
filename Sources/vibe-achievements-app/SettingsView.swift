@@ -58,6 +58,63 @@ struct SettingsView: View {
                     state.updateSourceSettings { $0.resetCodexPath() }
                 }
             )
+
+            SourceDirectoryRow(
+                title: "Cursor",
+                subtitle: "Cursor application support folder",
+                isEnabled: Binding(
+                    get: { state.sourceSettings.cursorEnabled },
+                    set: { value in state.updateSourceSettings { $0.cursorEnabled = value } }
+                ),
+                pathText: state.sourceSettings.cursorHomePath ?? "Auto: ~/Library/Application Support/Cursor",
+                isManualPath: state.sourceSettings.cursorHomePath != nil,
+                chooseDirectory: {
+                    chooseDirectory(title: "Choose Cursor Application Support Folder") { path in
+                        state.updateSourceSettings { $0.cursorHomePath = path }
+                    }
+                },
+                resetDirectory: {
+                    state.updateSourceSettings { $0.resetCursorPath() }
+                }
+            )
+
+            SourceDirectoryRow(
+                title: "OpenCode",
+                subtitle: "OpenCode data folder",
+                isEnabled: Binding(
+                    get: { state.sourceSettings.openCodeEnabled },
+                    set: { value in state.updateSourceSettings { $0.openCodeEnabled = value } }
+                ),
+                pathText: state.sourceSettings.openCodeDataPath ?? "Auto: $XDG_DATA_HOME/opencode or ~/.local/share/opencode",
+                isManualPath: state.sourceSettings.openCodeDataPath != nil,
+                chooseDirectory: {
+                    chooseDirectory(title: "Choose OpenCode Data Folder") { path in
+                        state.updateSourceSettings { $0.openCodeDataPath = path }
+                    }
+                },
+                resetDirectory: {
+                    state.updateSourceSettings { $0.resetOpenCodePath() }
+                }
+            )
+
+            SourceDirectoryRow(
+                title: "Antigravity",
+                subtitle: "Antigravity Gemini home folder · Experimental",
+                isEnabled: Binding(
+                    get: { state.sourceSettings.antigravityEnabled },
+                    set: { value in state.updateSourceSettings { $0.antigravityEnabled = value } }
+                ),
+                pathText: state.sourceSettings.antigravityHomePath ?? "Auto: ~/.gemini",
+                isManualPath: state.sourceSettings.antigravityHomePath != nil,
+                chooseDirectory: {
+                    chooseDirectory(title: "Choose Antigravity Gemini Home Folder") { path in
+                        state.updateSourceSettings { $0.antigravityHomePath = path }
+                    }
+                },
+                resetDirectory: {
+                    state.updateSourceSettings { $0.resetAntigravityPath() }
+                }
+            )
         }
         .padding()
         .frame(width: 560)

@@ -99,7 +99,7 @@ public enum AntigravityParser {
         let timestamps = messages.compactMap(\.timestamp)
         let transcript = ParsedTranscript(
             thread: NormalizedThread(
-                id: "\(sourceTool.rawValue):\(threadID)",
+                id: threadID,
                 sourceTool: sourceTool,
                 sourceThreadID: threadID,
                 sourcePath: sourcePath,
@@ -153,14 +153,20 @@ public enum AntigravityParser {
         if isIgnoredVariant(combined) {
             return .ignored
         }
-        if type == nil && role == nil && projectPath(in: object) != nil {
+        if type == nil && role == nil,
+           object["userMessage"] == nil,
+           object["plannerResponse"] == nil,
+           object["planner_response"] == nil,
+           projectPath(in: object) != nil {
             return .ignored
         }
 
         let messageRole: MessageRole
-        if isUserVariant(combined) || role == "human" {
+        if isUserVariant(combined) || role == "human" || object["userMessage"] != nil {
             messageRole = .user
-        } else if isAssistantVariant(combined) || role == "model" {
+        } else if isAssistantVariant(combined) || role == "model"
+                    || object["plannerResponse"] != nil
+                    || object["planner_response"] != nil {
             messageRole = .assistant
         } else {
             return .unknown
@@ -179,7 +185,10 @@ public enum AntigravityParser {
     }
 
     private static func visibleText(in object: [String: JSONValue]) -> String {
-        for key in ["text", "content", "message", "response", "output", "markdown", "body"] {
+        for key in [
+            "text", "content", "message", "response", "output", "markdown", "body",
+            "userMessage", "plannerResponse", "planner_response"
+        ] {
             if let text = textValue(object[key]), !text.isEmpty {
                 return text
             }

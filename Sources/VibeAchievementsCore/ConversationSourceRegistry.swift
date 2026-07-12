@@ -109,6 +109,53 @@ public enum ConversationSourceRegistry {
                 adapter: adapter
             ))
         }
+        if configuration.cursorEnabled {
+            let defaultRoots = CursorSourceAdapter.defaultRoots(home: home)
+            let applicationSupport = configuration.cursorHomeOverride ?? defaultRoots.applicationSupport
+            let roots = CursorRoots(applicationSupport: applicationSupport, projects: defaultRoots.projects)
+            let hasRoot = FileManager.default.fileExists(atPath: roots.applicationSupport.path)
+                || FileManager.default.fileExists(atPath: roots.projects.path)
+            registrations.append(ConversationSourceRegistration(
+                sourceTool: .cursor,
+                displayName: "Cursor",
+                adapter: hasRoot
+                    ? CursorSourceAdapter(roots: roots, detectorVersion: detectorVersion)
+                    : nil
+            ))
+        }
+        if configuration.openCodeEnabled {
+            let dataRoot = configuration.openCodeDataOverride
+                ?? environment["XDG_DATA_HOME"]
+                    .map { URL(fileURLWithPath: $0).appendingPathComponent("opencode", isDirectory: true) }
+                ?? home.appendingPathComponent(".local/share/opencode", isDirectory: true)
+            let hasRoot = FileManager.default.fileExists(atPath: dataRoot.path)
+            registrations.append(ConversationSourceRegistration(
+                sourceTool: .openCode,
+                displayName: "OpenCode",
+                adapter: hasRoot
+                    ? OpenCodeSourceAdapter(
+                        dataRoot: dataRoot,
+                        environment: environment,
+                        detectorVersion: detectorVersion
+                    )
+                    : nil
+            ))
+        }
+        if configuration.antigravityEnabled {
+            let roots = AntigravitySourceAdapter.defaultRoots(
+                home: home,
+                homeOverride: configuration.antigravityHomeOverride
+            )
+            let hasRoot = FileManager.default.fileExists(atPath: roots.ideBrain.path)
+                || FileManager.default.fileExists(atPath: roots.cliBrain.path)
+            registrations.append(ConversationSourceRegistration(
+                sourceTool: .antigravity,
+                displayName: "Antigravity",
+                adapter: hasRoot
+                    ? AntigravitySourceAdapter(roots: roots, detectorVersion: detectorVersion)
+                    : nil
+            ))
+        }
         return registrations
     }
 }

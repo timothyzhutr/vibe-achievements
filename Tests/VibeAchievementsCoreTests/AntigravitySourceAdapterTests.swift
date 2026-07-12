@@ -182,7 +182,7 @@ final class AntigravitySourceAdapterTests: XCTestCase {
             ideBrainRoot: ideRoot,
             cliBrainRoot: cliRoot,
             detectorVersion: "test",
-            sourceTool: .codex
+            sourceTool: .antigravity
         )
     }
 

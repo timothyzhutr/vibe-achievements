@@ -94,4 +94,5 @@ public protocol ConversationSourceAdapter: Sendable {
 
 public enum ConversationSourceAdapterError: Error, Equatable {
     case invalidRecord
+    case unsupportedRecord
 }

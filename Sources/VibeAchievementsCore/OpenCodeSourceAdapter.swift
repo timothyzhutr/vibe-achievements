@@ -1,12 +1,8 @@
 import Foundation
 import CryptoKit
 
-/// OpenCode's shared enum case is added by the integration layer. The raw-value
-/// lookup keeps this isolated reader buildable against the current branch; the
-/// fallback is deliberately temporary and must be replaced by `.openCode` when
-/// the shared model case is cherry-picked.
 enum OpenCodeSourceIdentity {
-    static let sourceTool = SourceTool(rawValue: "open_code") ?? .codex
+    static let sourceTool: SourceTool = .openCode
 }
 
 enum OpenCodeGeneration: String, Comparable, Sendable {

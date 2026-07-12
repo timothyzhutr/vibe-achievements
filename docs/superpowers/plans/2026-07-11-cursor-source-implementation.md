@@ -8,6 +8,15 @@
 
 **Tech Stack:** Swift 6, Foundation JSON, SQLite3, CryptoKit SHA-256, XCTest.
 
+## Implementation Status
+
+Implemented and wired through the shared registry and Settings UI. Global
+composer storage, agent transcripts, and legacy workspace storage are covered
+by focused fixtures plus an incremental `Indexer` integration test. Discovery
+is conservative when a configured generation is missing; cross-generation
+normalized digest collapse remains a follow-up because stable Cursor IDs differ
+between storage generations.
+
 ---
 
 **Dependency:** Complete `2026-07-11-conversation-source-adapter-implementation.md` first.

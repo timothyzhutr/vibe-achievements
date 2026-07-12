@@ -8,6 +8,14 @@
 
 **Tech Stack:** Swift 6, Foundation JSONSerialization/Codable, CryptoKit, XCTest.
 
+## Implementation Status
+
+Implemented and wired by default through the shared registry and Settings UI.
+Canonical IDE/CLI trajectory discovery, tolerant parsing, partial-record
+handling, stable-read retries, exact duplicate preference, and incremental
+indexing are covered by focused fixtures and integration tests. The local brain
+directories were empty, so the validation fixture is synthetic.
+
 ---
 
 **Dependency:** Complete `2026-07-11-conversation-source-adapter-implementation.md` first.

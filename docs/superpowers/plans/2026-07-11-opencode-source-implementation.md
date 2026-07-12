@@ -8,6 +8,14 @@
 
 **Tech Stack:** Swift 6, Foundation JSON, SQLite3, CryptoKit, XCTest.
 
+## Implementation Status
+
+Implemented and wired by default through the shared registry and Settings UI.
+Current ordered SQLite, compatibility SQLite, and legacy JSON storage have
+focused fixtures, generation priority, duplicate handling, read retries, and an
+incremental `Indexer` integration test. Real OpenCode history was not available
+on this Mac, so validation remains fixture-based.
+
 ---
 
 **Dependency:** Complete `2026-07-11-conversation-source-adapter-implementation.md` first.

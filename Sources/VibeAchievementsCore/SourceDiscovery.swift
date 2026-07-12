@@ -15,19 +15,37 @@ public struct SourceLocations: Equatable, Sendable {
 public struct SourceConfiguration: Equatable, Sendable {
     public var claudeEnabled: Bool
     public var codexEnabled: Bool
+    public var cursorEnabled: Bool
+    public var openCodeEnabled: Bool
+    public var antigravityEnabled: Bool
     public var claudeProjectsOverride: URL?
     public var codexHomeOverride: URL?
+    public var cursorHomeOverride: URL?
+    public var openCodeDataOverride: URL?
+    public var antigravityHomeOverride: URL?
 
     public init(
         claudeEnabled: Bool = true,
         codexEnabled: Bool = true,
+        cursorEnabled: Bool = true,
+        openCodeEnabled: Bool = true,
+        antigravityEnabled: Bool = true,
         claudeProjectsOverride: URL? = nil,
-        codexHomeOverride: URL? = nil
+        codexHomeOverride: URL? = nil,
+        cursorHomeOverride: URL? = nil,
+        openCodeDataOverride: URL? = nil,
+        antigravityHomeOverride: URL? = nil
     ) {
         self.claudeEnabled = claudeEnabled
         self.codexEnabled = codexEnabled
+        self.cursorEnabled = cursorEnabled
+        self.openCodeEnabled = openCodeEnabled
+        self.antigravityEnabled = antigravityEnabled
         self.claudeProjectsOverride = claudeProjectsOverride
         self.codexHomeOverride = codexHomeOverride
+        self.cursorHomeOverride = cursorHomeOverride
+        self.openCodeDataOverride = openCodeDataOverride
+        self.antigravityHomeOverride = antigravityHomeOverride
     }
 }
 
@@ -94,6 +112,10 @@ public enum SourceDiscovery {
 }
 
 public enum SourceFileFingerprint {
+    public static func make(detectorVersion: String, components: [String]) -> String {
+        "\(detectorVersion)-\(components.joined(separator: "|"))"
+    }
+
     public static func make(for url: URL, detectorVersion: String) -> String {
         let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
         let modified = values?.contentModificationDate?.timeIntervalSince1970 ?? 0

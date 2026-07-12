@@ -82,7 +82,7 @@ public struct AntigravitySourceAdapter: ConversationSourceAdapter {
             ideBrainRoot: roots.ideBrain,
             cliBrainRoot: roots.cliBrain,
             detectorVersion: detectorVersion,
-            sourceTool: SourceTool(rawValue: "antigravity") ?? .codex
+            sourceTool: .antigravity
         )
     }
 
@@ -91,7 +91,7 @@ public struct AntigravitySourceAdapter: ConversationSourceAdapter {
         ideBrainRoot: URL? = nil,
         cliBrainRoot: URL? = nil,
         detectorVersion: String = "antigravity-v1",
-        sourceTool: SourceTool = SourceTool(rawValue: "antigravity") ?? .codex
+        sourceTool: SourceTool = .antigravity
     ) {
         self.init(
             ideBrainRoot: ideBrainRoot ?? home.appendingPathComponent(".gemini/antigravity/brain"),
@@ -137,6 +137,7 @@ public struct AntigravitySourceAdapter: ConversationSourceAdapter {
         var digestOwners: [String: Candidate] = [:]
         for candidate in candidateRecords.sorted(by: candidateSort) {
             let digest: String?
+            var shouldKeepRecord = true
             do {
                 let data = try stableReader(candidate.url)
                 let result = try AntigravityParser.parse(
@@ -145,6 +146,7 @@ public struct AntigravitySourceAdapter: ConversationSourceAdapter {
                     threadID: candidate.record.stableID,
                     sourcePath: candidate.url.path
                 )
+                shouldKeepRecord = !result.transcript.messages.isEmpty
                 digest = result.transcript.messages.isEmpty
                     ? nil
                     : AntigravityParser.normalizedDigest(for: result.transcript)
@@ -174,6 +176,7 @@ public struct AntigravitySourceAdapter: ConversationSourceAdapter {
                 ))
             }
 
+            guard shouldKeepRecord else { continue }
             if let digest, let owner = digestOwners[digest] {
                 warnings.append(SourceWarning(
                     sourceTool: sourceTool,

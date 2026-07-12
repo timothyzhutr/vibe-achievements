@@ -70,6 +70,10 @@ private struct CLIFileAdapter: ConversationSourceAdapter {
             return try ClaudeCodeParser.parse(fileURL: url)
         case .codex:
             return try CodexParser.parse(fileURL: url)
+        case .cursor:
+            throw ConversationSourceAdapterError.unsupportedRecord
+        case .openCode, .antigravity:
+            throw ConversationSourceAdapterError.unsupportedRecord
         }
     }
 }

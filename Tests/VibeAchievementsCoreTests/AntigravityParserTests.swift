@@ -10,13 +10,13 @@ final class AntigravityParserTests: XCTestCase {
 
         let result = try AntigravityParser.parse(
             data: data,
-            sourceTool: .codex,
+            sourceTool: .antigravity,
             threadID: "antigravity:ide:fixture",
             sourcePath: fixture.path
         )
 
         XCTAssertEqual(result.transcript.thread.sourceThreadID, "antigravity:ide:fixture")
-        XCTAssertEqual(result.transcript.thread.sourceTool, .codex)
+        XCTAssertEqual(result.transcript.thread.sourceTool, .antigravity)
         XCTAssertEqual(result.transcript.thread.projectPath, "/tmp/vibe-app")
         XCTAssertEqual(result.transcript.messages.map(\.role), [.user, .assistant, .assistant])
         XCTAssertEqual(result.transcript.messages.map(\.text), [
@@ -41,7 +41,7 @@ final class AntigravityParserTests: XCTestCase {
 
         let result = try AntigravityParser.parse(
             data: data,
-            sourceTool: .codex,
+            sourceTool: .antigravity,
             threadID: "trajectory",
             sourcePath: "/tmp/trajectory.jsonl"
         )
@@ -61,13 +61,31 @@ final class AntigravityParserTests: XCTestCase {
 
         let result = try AntigravityParser.parse(
             data: data,
-            sourceTool: .codex,
+            sourceTool: .antigravity,
             threadID: "trajectory",
             sourcePath: "/tmp/trajectory.jsonl"
         )
 
         XCTAssertEqual(result.transcript.thread.projectPath, "/tmp/current")
         XCTAssertEqual(result.transcript.messages[1].timestamp, Date(timeIntervalSince1970: 1720656000))
+    }
+
+    func testRecognizesBareUserMessageAndPlannerResponseFields() throws {
+        let data = [
+            #"{"userMessage":"hello"}"#,
+            #"{"plannerResponse":{"text":"done"}}"#
+        ].joined(separator: "\n").data(using: .utf8)!
+
+        let result = try AntigravityParser.parse(
+            data: data,
+            sourceTool: .antigravity,
+            threadID: "trajectory",
+            sourcePath: "/tmp/trajectory.jsonl"
+        )
+
+        XCTAssertEqual(result.transcript.thread.id, "trajectory")
+        XCTAssertEqual(result.transcript.messages.map(\.role), [.user, .assistant])
+        XCTAssertEqual(result.transcript.messages.map(\.text), ["hello", "done"])
     }
 
     func testDigestUsesRoleAndTextOrderAndKeepsPrefixForksDifferent() throws {
@@ -79,13 +97,13 @@ final class AntigravityParserTests: XCTestCase {
 
         let firstResult = try AntigravityParser.parse(
             data: first,
-            sourceTool: .codex,
+            sourceTool: .antigravity,
             threadID: "first",
             sourcePath: "/tmp/first.jsonl"
         )
         let secondResult = try AntigravityParser.parse(
             data: second,
-            sourceTool: .codex,
+            sourceTool: .antigravity,
             threadID: "second",
             sourcePath: "/tmp/second.jsonl"
         )

@@ -2,7 +2,8 @@
 
 A lightweight, **local-only macOS menu bar app** that turns your AI-assisted
 coding history into Steam-style achievements. It quietly watches the transcripts
-that tools like **Claude Code** and **Codex** already write to disk, extracts
+that tools like **Claude Code**, **Codex**, **Cursor**, **OpenCode**, and
+**Antigravity** already write to disk, extracts
 cheap keyword/metadata signals, and unlocks playful achievements — *"Actually,
 Wait"*, *"rm -rf"*, *"Stack Trace Oracle"* — as your vibe-coding patterns emerge.
 
@@ -16,8 +17,8 @@ on your machine.
 
 ## What it does
 
-- Auto-detects local Claude Code and Codex transcript folders, with Settings
-  controls for correcting or disabling each source.
+- Auto-detects local Claude Code, Codex, Cursor, OpenCode, and Antigravity
+  history, with Settings controls for correcting or disabling each source.
 - Parses transcripts defensively (malformed lines/files are skipped, never fatal).
 - Normalizes everything into a small local SQLite database.
 - Extracts lightweight events (corrections, stack traces, destructive cleanup,
@@ -35,7 +36,7 @@ on your machine.
  Source settings ──► ConversationSourceRegistry
                               │
                               ▼
-                 ClaudeCode / Codex adapters
+          ClaudeCode / Codex / Cursor / OpenCode / Antigravity adapters
                   (discover + fingerprint records)
                               │
                               ▼
@@ -55,24 +56,35 @@ are retried, one unavailable source does not block another, and derived local
 threads are removed only after two complete scans where the source record is
 absent. Indexing runs off the main thread; the UI never blocks on a scan.
 
-### Validated local sources
+### Supported local sources
 
 - Claude Code: `~/.claude/projects/**/*.jsonl`
 - Codex sessions: `$CODEX_HOME/sessions/**/*.jsonl` (default `~/.codex/sessions`)
 - Codex archived sessions: `$CODEX_HOME/archived_sessions/*.jsonl`
+- Cursor global/workspace stores: `~/Library/Application Support/Cursor/**`
+- Cursor agent transcripts: `~/.cursor/projects/*/agent-transcripts/**/*.jsonl`
+- OpenCode data: `$XDG_DATA_HOME/opencode` (default `~/.local/share/opencode`)
+- Antigravity IDE/CLI trajectories: `~/.gemini/antigravity*/brain/*/.system_generated/logs/transcript.jsonl`
 
 Source stores are read **read-only**; the app never modifies your history.
+OpenCode and Antigravity are covered by synthetic storage fixtures in the test
+suite; this Mac does not currently have local OpenCode history to validate.
 
 ### Source settings
 
 Open **Settings** from the menu bar item to control watched sources:
 
-- Toggle `Claude Code` or `Codex` scanning on or off.
+- Toggle any supported source scanning on or off.
 - Use **Choose...** to point Claude Code at a projects folder, such as
   `~/.claude/projects`.
 - Use **Choose...** to point Codex at its home folder, such as `~/.codex`; the
   app derives `sessions` and `archived_sessions` below that folder.
 - Use **Reset** to return a source to auto-detection.
+
+Cursor settings point at its application support folder; OpenCode settings point
+at its data folder; Antigravity settings point at the `.gemini` home folder.
+The app only reads documented conversation stores under those roots and never
+opens credentials, logs, caches, or UI state.
 
 Settings are stored locally in `UserDefaults` and trigger a quiet rescan after
 changes.
@@ -100,7 +112,7 @@ swift run vibe-achievements-app
 Runs as a menu-bar **accessory** app (no Dock icon). Use the **Vibe** menu bar
 item to open the achievement shelf, open Settings, or quit. Scans run
 automatically on launch, when a window opens, and on a periodic timer. Settings
-lets you enable/disable Claude Code and Codex sources, choose manual source
+lets you enable/disable supported sources, choose manual source
 folders, and reset back to auto-detection.
 
 > Note: notifications require a real app bundle identifier, so they are
@@ -153,9 +165,18 @@ Sources/
     SourceDiscovery.swift       # resolve default and overridden roots
     ClaudeCodeSourceAdapter.swift
     CodexSourceAdapter.swift
-    ReadOnlySQLiteSnapshot.swift # safe helper for future DB-backed adapters
+    CursorSourceAdapter.swift
+    OpenCodeSourceAdapter.swift
+    AntigravitySourceAdapter.swift
+    ReadOnlySQLiteSnapshot.swift # safe helper for DB-backed adapters
     ClaudeCodeParser.swift      # Claude Code JSONL parser
     CodexParser.swift           # Codex JSONL parser
+    CursorGlobalStoreReader.swift
+    CursorLegacyStoreReader.swift
+    OpenCodeCurrentStoreReader.swift
+    OpenCodeCompatibilityStoreReader.swift
+    OpenCodeLegacyStoreReader.swift
+    AntigravityParser.swift
     TextContent.swift           # shared content extraction
     AchievementContract.swift   # contract loader (+ bundled V1)
     EventExtractor.swift        # keyword/metadata event signals
@@ -167,7 +188,7 @@ Sources/
       achievement-trigger-contracts-v1.jsonl   # bundled contracts
   vibe-achievements-cli/        # headless indexer
   vibe-achievements-app/        # SwiftUI + AppKit menu bar app
-    AppSourceSettings.swift     # persisted Claude/Codex source settings
+    AppSourceSettings.swift     # persisted source settings
 Tests/VibeAchievementsCoreTests/
 docs/                           # design spec, plan, achievement list
 ```

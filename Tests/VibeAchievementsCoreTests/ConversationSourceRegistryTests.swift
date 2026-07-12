@@ -2,7 +2,7 @@ import XCTest
 @testable import VibeAchievementsCore
 
 final class ConversationSourceRegistryTests: XCTestCase {
-    func testRegistryOrderIsClaudeCodeThenCodex() throws {
+    func testRegistryOrderIncludesAllSupportedSources() throws {
         let home = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: home) }
@@ -14,6 +14,26 @@ final class ConversationSourceRegistryTests: XCTestCase {
             at: home.appendingPathComponent(".codex/sessions"),
             withIntermediateDirectories: true
         )
+        try FileManager.default.createDirectory(
+            at: home.appendingPathComponent("Library/Application Support/Cursor"),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: home.appendingPathComponent(".cursor/projects"),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: home.appendingPathComponent(".local/share/opencode"),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: home.appendingPathComponent(".gemini/antigravity/brain"),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: home.appendingPathComponent(".gemini/antigravity-cli/brain"),
+            withIntermediateDirectories: true
+        )
 
         let registrations = ConversationSourceRegistry.registrations(
             home: home,
@@ -22,7 +42,7 @@ final class ConversationSourceRegistryTests: XCTestCase {
             detectorVersion: "test"
         )
 
-        XCTAssertEqual(registrations.map(\.sourceTool), [.claudeCode, .codex])
+        XCTAssertEqual(registrations.map(\.sourceTool), [.claudeCode, .codex, .cursor, .openCode, .antigravity])
         XCTAssertTrue(registrations.allSatisfy { $0.adapter != nil })
     }
 
