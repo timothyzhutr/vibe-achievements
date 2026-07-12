@@ -92,11 +92,34 @@ final class AppStateTests: XCTestCase {
         )
 
         state.scanNow()
-        let supersededGeneration = state.scanGeneration
+        let supersededRevision = state.sourceConfigurationRevision
         state.updateSourceSettings { $0.cursorEnabled.toggle() }
-        state.applySourceStatuses([staleStatus], fromScanGeneration: supersededGeneration)
+        state.applySourceStatuses([staleStatus], fromSourceConfigurationRevision: supersededRevision)
 
         XCTAssertTrue(state.sourceStatuses.isEmpty)
+    }
+
+    @MainActor
+    func testRepeatedOrdinaryScanRequestsDoNotInvalidateCurrentResult() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        let state = AppState(
+            storePath: NSTemporaryDirectory() + UUID().uuidString + ".sqlite",
+            sourceSettingsDefaults: defaults
+        )
+        let currentStatus = ConversationSourceStatus(
+            sourceTool: .claudeCode,
+            displayName: "Claude Code",
+            state: .connected,
+            recordCount: 3,
+            warningCount: 0
+        )
+
+        state.scanNow()
+        let activeRevision = state.sourceConfigurationRevision
+        state.scanNow()
+        state.applySourceStatuses([currentStatus], fromSourceConfigurationRevision: activeRevision)
+
+        XCTAssertEqual(state.sourceStatuses[.claudeCode], currentStatus)
     }
 
     func testNotificationStateIsMarkedOnlyWhenNotificationsCanSchedule() {

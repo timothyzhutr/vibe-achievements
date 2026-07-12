@@ -16,7 +16,7 @@ final class AppState: ObservableObject {
     private let sourceSettingsDefaults: UserDefaults
     private var isScanning = false
     private var pendingScan = false
-    private(set) var scanGeneration: UInt = 0
+    private(set) var sourceConfigurationRevision: UInt = 0
     /// Set once the notification-permission prompt has been answered. Scans
     /// before this index but do not notify — a banner posted without permission
     /// is dropped by the OS, and the unlock would be marked notified, losing it.
@@ -41,8 +41,6 @@ final class AppState: ObservableObject {
     /// SQLite writes, and posting notifications all run off the main actor; only
     /// the published-state update runs back on main.
     func scanNow() {
-        scanGeneration &+= 1
-        let generation = scanGeneration
         guard !isScanning else {
             // Don't drop a scan behind an in-flight one — the post-permission
             // scan, or a source-settings change, may arrive during an earlier scan.
@@ -50,12 +48,13 @@ final class AppState: ObservableObject {
             return
         }
         isScanning = true
+        let configurationRevision = sourceConfigurationRevision
         let storePath = self.storePath
         let sourceConfiguration = sourceSettings.discoveryConfiguration
         let notify = notificationsReady
         Task {
             let result = await Self.performScan(storePath: storePath, sourceConfiguration: sourceConfiguration, notify: notify)
-            self.apply(result, fromScanGeneration: generation)
+            self.apply(result, fromSourceConfigurationRevision: configurationRevision)
             self.isScanning = false
             if self.pendingScan {
                 self.pendingScan = false
@@ -71,6 +70,7 @@ final class AppState: ObservableObject {
         update(&copy)
         sourceSettings = copy
         copy.save(to: sourceSettingsDefaults)
+        sourceConfigurationRevision &+= 1
         sourceStatuses = [:]
         scanNow()
     }
@@ -82,14 +82,14 @@ final class AppState: ObservableObject {
     }
 
     @discardableResult
-    func applySourceStatuses(_ statuses: [ConversationSourceStatus], fromScanGeneration generation: UInt) -> Bool {
-        guard generation == scanGeneration else { return false }
+    func applySourceStatuses(_ statuses: [ConversationSourceStatus], fromSourceConfigurationRevision revision: UInt) -> Bool {
+        guard revision == sourceConfigurationRevision else { return false }
         applySourceStatuses(statuses)
         return true
     }
 
-    private func apply(_ result: ScanResult, fromScanGeneration generation: UInt) {
-        guard applySourceStatuses(result.sourceStatuses, fromScanGeneration: generation) else { return }
+    private func apply(_ result: ScanResult, fromSourceConfigurationRevision revision: UInt) {
+        guard applySourceStatuses(result.sourceStatuses, fromSourceConfigurationRevision: revision) else { return }
         sourceSummary = result.sourceSummary
         lastScanSummary = result.lastScanSummary
         lastError = result.error
