@@ -3,7 +3,7 @@ import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    nonisolated static let settingsWindowContentSize = NSSize(width: 720, height: 500)
+    nonisolated static let settingsWindowContentSize = NSSize(width: 720, height: 640)
 
     private var statusItem: NSStatusItem?
     private var shelfWindow: NSWindow?

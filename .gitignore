@@ -17,3 +17,6 @@ DerivedData/
 *.sqlite
 dist/
 *.dmg
+
+# Local visual-design companion state
+.superpowers/

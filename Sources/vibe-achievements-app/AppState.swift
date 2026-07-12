@@ -4,10 +4,11 @@ import VibeAchievementsCore
 
 @MainActor
 final class AppState: ObservableObject {
-    @Published var sourceSummary: String = "Not indexed yet"
+    @Published var sourceSummary: String = "Refreshing sources"
+    @Published var sourceStatuses: [SourceTool: ConversationSourceStatus] = [:]
     @Published var recentUnlocks: [AchievementUnlock] = []
     @Published var achievementContracts: [AchievementContract] = []
-    @Published var lastScanSummary: String = "No scan yet"
+    @Published var lastScanSummary: String = "Loading indexed history"
     @Published var lastError: String?
     @Published var sourceSettings: AppSourceSettings
 
@@ -15,6 +16,7 @@ final class AppState: ObservableObject {
     private let sourceSettingsDefaults: UserDefaults
     private var isScanning = false
     private var pendingScan = false
+    private(set) var sourceConfigurationRevision: UInt = 0
     /// Set once the notification-permission prompt has been answered. Scans
     /// before this index but do not notify — a banner posted without permission
     /// is dropped by the OS, and the unlock would be marked notified, losing it.
@@ -24,6 +26,7 @@ final class AppState: ObservableObject {
         self.storePath = storePath
         self.sourceSettingsDefaults = sourceSettingsDefaults
         self.sourceSettings = AppSourceSettings.load(from: sourceSettingsDefaults)
+        loadCachedShelf()
     }
 
     /// Called once the notification-permission prompt is answered. Enables
@@ -45,12 +48,13 @@ final class AppState: ObservableObject {
             return
         }
         isScanning = true
+        let configurationRevision = sourceConfigurationRevision
         let storePath = self.storePath
         let sourceConfiguration = sourceSettings.discoveryConfiguration
         let notify = notificationsReady
         Task {
             let result = await Self.performScan(storePath: storePath, sourceConfiguration: sourceConfiguration, notify: notify)
-            self.apply(result)
+            self.apply(result, fromSourceConfigurationRevision: configurationRevision)
             self.isScanning = false
             if self.pendingScan {
                 self.pendingScan = false
@@ -66,10 +70,26 @@ final class AppState: ObservableObject {
         update(&copy)
         sourceSettings = copy
         copy.save(to: sourceSettingsDefaults)
+        sourceConfigurationRevision &+= 1
+        sourceStatuses = [:]
         scanNow()
     }
 
-    private func apply(_ result: ScanResult) {
+    func applySourceStatuses(_ statuses: [ConversationSourceStatus]) {
+        sourceStatuses = statuses.reduce(into: [:]) { statusesByTool, status in
+            statusesByTool[status.sourceTool] = status
+        }
+    }
+
+    @discardableResult
+    func applySourceStatuses(_ statuses: [ConversationSourceStatus], fromSourceConfigurationRevision revision: UInt) -> Bool {
+        guard revision == sourceConfigurationRevision else { return false }
+        applySourceStatuses(statuses)
+        return true
+    }
+
+    private func apply(_ result: ScanResult, fromSourceConfigurationRevision revision: UInt) {
+        guard applySourceStatuses(result.sourceStatuses, fromSourceConfigurationRevision: revision) else { return }
         sourceSummary = result.sourceSummary
         lastScanSummary = result.lastScanSummary
         lastError = result.error
@@ -87,12 +107,25 @@ final class AppState: ObservableObject {
             .appendingPathComponent("vibe-achievements.sqlite")
             .path
     }
+
+    private func loadCachedShelf() {
+        do {
+            achievementContracts = try AchievementContractLoader.loadBundledV1()
+            guard FileManager.default.fileExists(atPath: storePath) else { return }
+            recentUnlocks = try SQLiteStore(path: storePath).allUnlocks()
+            guard !recentUnlocks.isEmpty else { return }
+            lastScanSummary = "Loaded \(recentUnlocks.count) cached achievement\(recentUnlocks.count == 1 ? "" : "s")"
+        } catch {
+            lastError = "Could not load cached achievements: \(error)"
+        }
+    }
 }
 
 /// Result of a background scan, carried back to the main actor. All fields are
 /// `Sendable` so it can cross the actor boundary safely.
 private struct ScanResult: Sendable {
     var sourceSummary: String
+    var sourceStatuses: [ConversationSourceStatus]
     var lastScanSummary: String
     var achievementContracts: [AchievementContract]
     var recentUnlocks: [AchievementUnlock]?
@@ -100,19 +133,16 @@ private struct ScanResult: Sendable {
 }
 
 extension AppState {
-    nonisolated static let detectorFingerprintVersion = "detectors-v3"
+    nonisolated static let detectorFingerprintVersion = "detectors-v4"
 
     nonisolated private static func performScan(storePath: String, sourceConfiguration: SourceConfiguration, notify: Bool) async -> ScanResult {
-        let locations = SourceDiscovery.discover(configuration: sourceConfiguration)
-        var parts: [String] = []
-        if locations.claudeProjects != nil { parts.append("Claude Code") }
-        if locations.codexSessions != nil || locations.codexArchivedSessions != nil { parts.append("Codex") }
-        let sourceLabel = parts.isEmpty ? "No sources detected" : "Detected: " + parts.joined(separator: ", ")
-
-        let transcriptPaths = SourceDiscovery.transcriptPaths(in: locations)
-        let sourceSummary = transcriptPaths.isEmpty
-            ? sourceLabel
-            : "\(sourceLabel) · \(transcriptPaths.count) transcript files"
+        let registrations = ConversationSourceRegistry.registrations(
+            configuration: sourceConfiguration,
+            detectorVersion: detectorFingerprintVersion
+        )
+        let unavailableStatuses = registrations.compactMap(\.unavailableStatus)
+        let failureStatuses = registrations.map(\.failureStatus)
+        let adapters = registrations.compactMap(\.adapter)
 
         do {
             try FileManager.default.createDirectory(
@@ -121,31 +151,16 @@ extension AppState {
             )
             let store = try SQLiteStore(path: storePath)
             let contracts = try AchievementContractLoader.loadBundledV1()
-            let knownFingerprints = try store.knownFileFingerprints()
-
-            var changed: [(url: URL, fingerprint: String)] = []
-            for path in transcriptPaths {
-                let fingerprint = fingerprint(for: path)
-                if knownFingerprints[path.path] != fingerprint {
-                    changed.append((path, fingerprint))
-                }
-            }
-
-            var newUnlockCount = 0
-            var warnings: [IndexWarning] = []
-            if !changed.isEmpty {
-                let result = try Indexer.index(paths: changed.map(\.url), contracts: contracts, store: store)
-                newUnlockCount = result.unlocks.count
-                warnings = result.warnings
-                // Record fingerprints even for files that produced no unlocks so
-                // they are not re-parsed until they actually change again. Files
-                // that failed to parse are deliberately retried on later scans.
-                for entry in changed {
-                    if shouldRecordFingerprint(for: entry.url.path, warnings: warnings) {
-                        try store.recordFileFingerprint(path: entry.url.path, fingerprint: entry.fingerprint)
-                    }
-                }
-            }
+            let indexResult = try Indexer.index(
+                adapters: adapters,
+                contracts: contracts,
+                store: store,
+                scanID: UUID().uuidString
+            )
+            let statusByTool = Dictionary(
+                uniqueKeysWithValues: (unavailableStatuses + indexResult.sourceStatuses).map { ($0.sourceTool, $0) }
+            )
+            let statuses = registrations.compactMap { statusByTool[$0.sourceTool] }
 
             // One banner per achievement, exactly once. Every unlock not yet
             // notified gets a banner here (oldest first), then is marked so it is
@@ -166,16 +181,21 @@ extension AppState {
 
             let recent = try store.allUnlocks()
             return ScanResult(
-                sourceSummary: sourceSummary,
-                lastScanSummary: scanSummary(changedFileCount: changed.count, newUnlockCount: newUnlockCount),
+                sourceSummary: sourceSummary(for: statuses),
+                sourceStatuses: statuses,
+                lastScanSummary: scanSummary(
+                    changedFileCount: indexResult.changedRecordCount,
+                    newUnlockCount: indexResult.unlocks.count
+                ),
                 achievementContracts: contracts,
                 recentUnlocks: recent,
-                error: warningSummary(for: warnings)
+                error: warningSummary(for: indexResult.warnings)
             )
         } catch {
             let message = String(describing: error)
             return ScanResult(
-                sourceSummary: sourceSummary,
+                sourceSummary: sourceSummary(for: failureStatuses),
+                sourceStatuses: failureStatuses,
                 lastScanSummary: "Scan failed",
                 achievementContracts: [],
                 recentUnlocks: nil,
@@ -184,16 +204,9 @@ extension AppState {
         }
     }
 
-    /// Cheap change-detection fingerprint: modification time plus size.
-    nonisolated static func fingerprint(for url: URL) -> String {
-        let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
-        let modified = values?.contentModificationDate?.timeIntervalSince1970 ?? 0
-        let size = values?.fileSize ?? 0
-        return "\(detectorFingerprintVersion)-\(modified)-\(size)"
-    }
-
-    nonisolated static func shouldRecordFingerprint(for path: String, warnings: [IndexWarning]) -> Bool {
-        !warnings.contains { $0.path == path }
+    nonisolated static func sourceSummary(for statuses: [ConversationSourceStatus]) -> String {
+        guard !statuses.isEmpty else { return "No sources enabled" }
+        return statuses.map(\.summary).joined(separator: " · ")
     }
 
     nonisolated static func shouldMarkNotificationsDelivered(notify: Bool, notificationsAvailable: Bool, pendingCount: Int) -> Bool {
@@ -206,14 +219,14 @@ extension AppState {
         guard !warnings.isEmpty else { return nil }
         let names = warnings.prefix(3).map { URL(fileURLWithPath: $0.path).lastPathComponent }
         let suffix = warnings.count > 3 ? ", …" : ""
-        return "Skipped \(warnings.count) unreadable file\(warnings.count == 1 ? "" : "s"): \(names.joined(separator: ", "))\(suffix)"
+        return "\(warnings.count) source warning\(warnings.count == 1 ? "" : "s"): \(names.joined(separator: ", "))\(suffix)"
     }
 
     nonisolated private static func scanSummary(changedFileCount: Int, newUnlockCount: Int) -> String {
         if changedFileCount == 0 {
             return "No transcript changes"
         }
-        let files = "\(changedFileCount) changed file\(changedFileCount == 1 ? "" : "s")"
+        let files = "\(changedFileCount) changed conversation\(changedFileCount == 1 ? "" : "s")"
         if newUnlockCount == 0 {
             return "Scanned \(files) · no new achievements"
         }

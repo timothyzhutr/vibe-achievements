@@ -1,102 +1,144 @@
 import AppKit
 import SwiftUI
+import VibeAchievementsCore
 
 struct SettingsView: View {
     @ObservedObject var state: AppState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Conversation Sources")
-                .font(.title3.weight(.semibold))
-
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(SourceDirectorySetting.rows(for: state.sourceSettings)) { source in
-                    SourceDirectoryRow(
-                        source: source,
-                        isEnabled: enabledBinding(for: source.platform),
-                        chooseDirectory: {
-                            chooseDirectory(title: "Choose \(source.platformName) \(source.folderRole)") { path in
-                                updatePath(for: source.platform, path: path)
-                            }
-                        },
-                        resetDirectory: {
-                            resetPath(for: source.platform)
-                        }
-                    )
-                }
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Scan Status")
-                    .font(.headline)
-                Text(state.sourceSummary)
-                    .foregroundStyle(.secondary)
-                Text(state.lastScanSummary)
-                    .foregroundStyle(.secondary)
-                if let lastError = state.lastError {
-                    Text(lastError)
-                        .foregroundStyle(.red)
-                }
-            }
-
-            Button {
-                state.scanNow()
-            } label: {
-                Label("Scan Now", systemImage: "arrow.clockwise")
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(24)
-        .frame(minWidth: 680, idealWidth: 720, minHeight: 460, idealHeight: 500, alignment: .topLeading)
-        .onAppear { state.scanNow() }
-    }
-
-    private func enabledBinding(for platform: SourceDirectorySetting.Platform) -> Binding<Bool> {
-        Binding(
-            get: {
-                switch platform {
-                case .claude:
-                    return state.sourceSettings.claudeEnabled
-                case .codex:
-                    return state.sourceSettings.codexEnabled
-                }
-            },
-            set: { value in
-                state.updateSourceSettings { settings in
-                    switch platform {
-                    case .claude:
-                        settings.claudeEnabled = value
-                    case .codex:
-                        settings.codexEnabled = value
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Sources")
+                        .font(.headline)
+                    Text(state.sourceSummary)
+                        .foregroundStyle(.secondary)
+                    Text(state.lastScanSummary)
+                        .foregroundStyle(.secondary)
+                    if let lastError = state.lastError {
+                        Text(lastError)
+                            .foregroundStyle(.red)
                     }
+
+                    Button {
+                        state.scanNow()
+                    } label: {
+                        Label("Scan Now", systemImage: "arrow.clockwise")
+                    }
+                    .padding(.top, 4)
                 }
-            }
-        )
-    }
 
-    private func updatePath(for platform: SourceDirectorySetting.Platform, path: String) {
-        state.updateSourceSettings { settings in
-            switch platform {
-            case .claude:
-                settings.claudeProjectsPath = path
-            case .codex:
-                settings.codexHomePath = path
-            }
-        }
-    }
+                Divider()
 
-    private func resetPath(for platform: SourceDirectorySetting.Platform) {
-        state.updateSourceSettings { settings in
-            switch platform {
-            case .claude:
-                settings.resetClaudePath()
-            case .codex:
-                settings.resetCodexPath()
+                SourceDirectoryRow(
+                    title: "Claude Code",
+                    subtitle: "Conversation projects folder",
+                    sourceTool: .claudeCode,
+                    status: state.sourceStatuses[.claudeCode],
+                    isEnabled: Binding(
+                        get: { state.sourceSettings.claudeEnabled },
+                        set: { value in state.updateSourceSettings { $0.claudeEnabled = value } }
+                    ),
+                    pathText: state.sourceSettings.claudeProjectsPath ?? "Auto: ~/.claude/projects",
+                    isManualPath: state.sourceSettings.claudeProjectsPath != nil,
+                    chooseDirectory: {
+                        chooseDirectory(title: "Choose Claude Code Projects Folder") { path in
+                            state.updateSourceSettings { $0.claudeProjectsPath = path }
+                        }
+                    },
+                    resetDirectory: {
+                        state.updateSourceSettings { $0.resetClaudePath() }
+                    }
+                )
+
+                SourceDirectoryRow(
+                    title: "Codex",
+                    subtitle: "Codex home folder",
+                    sourceTool: .codex,
+                    status: state.sourceStatuses[.codex],
+                    isEnabled: Binding(
+                        get: { state.sourceSettings.codexEnabled },
+                        set: { value in state.updateSourceSettings { $0.codexEnabled = value } }
+                    ),
+                    pathText: state.sourceSettings.codexHomePath ?? "Auto: $CODEX_HOME or ~/.codex",
+                    isManualPath: state.sourceSettings.codexHomePath != nil,
+                    chooseDirectory: {
+                        chooseDirectory(title: "Choose Codex Home Folder") { path in
+                            state.updateSourceSettings { $0.codexHomePath = path }
+                        }
+                    },
+                    resetDirectory: {
+                        state.updateSourceSettings { $0.resetCodexPath() }
+                    }
+                )
+
+                SourceDirectoryRow(
+                    title: "Cursor",
+                    subtitle: "Cursor application support folder",
+                    sourceTool: .cursor,
+                    status: state.sourceStatuses[.cursor],
+                    isEnabled: Binding(
+                        get: { state.sourceSettings.cursorEnabled },
+                        set: { value in state.updateSourceSettings { $0.cursorEnabled = value } }
+                    ),
+                    pathText: state.sourceSettings.cursorHomePath ?? "Auto: ~/Library/Application Support/Cursor",
+                    isManualPath: state.sourceSettings.cursorHomePath != nil,
+                    chooseDirectory: {
+                        chooseDirectory(title: "Choose Cursor Application Support Folder") { path in
+                            state.updateSourceSettings { $0.cursorHomePath = path }
+                        }
+                    },
+                    resetDirectory: {
+                        state.updateSourceSettings { $0.resetCursorPath() }
+                    }
+                )
+
+                SourceDirectoryRow(
+                    title: "OpenCode",
+                    subtitle: "OpenCode data folder",
+                    sourceTool: .openCode,
+                    status: state.sourceStatuses[.openCode],
+                    isEnabled: Binding(
+                        get: { state.sourceSettings.openCodeEnabled },
+                        set: { value in state.updateSourceSettings { $0.openCodeEnabled = value } }
+                    ),
+                    pathText: state.sourceSettings.openCodeDataPath ?? "Auto: $XDG_DATA_HOME/opencode or ~/.local/share/opencode",
+                    isManualPath: state.sourceSettings.openCodeDataPath != nil,
+                    chooseDirectory: {
+                        chooseDirectory(title: "Choose OpenCode Data Folder") { path in
+                            state.updateSourceSettings { $0.openCodeDataPath = path }
+                        }
+                    },
+                    resetDirectory: {
+                        state.updateSourceSettings { $0.resetOpenCodePath() }
+                    }
+                )
+
+                SourceDirectoryRow(
+                    title: "Antigravity",
+                    subtitle: "Antigravity Gemini home folder · Experimental",
+                    sourceTool: .antigravity,
+                    status: state.sourceStatuses[.antigravity],
+                    isEnabled: Binding(
+                        get: { state.sourceSettings.antigravityEnabled },
+                        set: { value in state.updateSourceSettings { $0.antigravityEnabled = value } }
+                    ),
+                    pathText: state.sourceSettings.antigravityHomePath ?? "Auto: ~/.gemini",
+                    isManualPath: state.sourceSettings.antigravityHomePath != nil,
+                    chooseDirectory: {
+                        chooseDirectory(title: "Choose Antigravity Gemini Home Folder") { path in
+                            state.updateSourceSettings { $0.antigravityHomePath = path }
+                        }
+                    },
+                    resetDirectory: {
+                        state.updateSourceSettings { $0.resetAntigravityPath() }
+                    }
+                )
             }
+            .frame(maxWidth: 680, alignment: .leading)
+            .padding(20)
         }
+        .onAppear { state.scanNow() }
     }
 
     private func chooseDirectory(title: String, onSelection: (String) -> Void) {
@@ -113,46 +155,91 @@ struct SettingsView: View {
 }
 
 private struct SourceDirectoryRow: View {
-    let source: SourceDirectorySetting
+    let title: String
+    let subtitle: String
+    let sourceTool: SourceTool
+    let status: ConversationSourceStatus?
     @Binding var isEnabled: Bool
+    let pathText: String
+    let isManualPath: Bool
     let chooseDirectory: () -> Void
     let resetDirectory: () -> Void
 
+    private var presentation: SourceStatusPresentation {
+        SourceStatusPresentation.make(isEnabled: isEnabled, status: status)
+    }
+
+    private var connectionAccessibilityLabel: String {
+        var components = ["\(title) connection", presentation.label]
+        if let detail = presentation.detail {
+            components.append(detail)
+        }
+        return components.joined(separator: ", ")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 16) {
-                Image(systemName: iconName)
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(isEnabled ? .primary : .tertiary)
-                    .frame(width: 32, height: 32)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(source.platformName)
-                        .font(.headline)
-                    Text(source.folderRole)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                Toggle("Scan", isOn: $isEnabled)
-                    .toggleStyle(.switch)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.headline)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
-            HStack(alignment: .center, spacing: 10) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(source.selectionMode == .manual ? "Selected folder" : "Automatic folder")
-                        .font(.caption.weight(.medium))
+            HStack(alignment: .top, spacing: 28) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Enabled")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text(source.displayPath)
-                        .font(.system(.callout, design: .monospaced))
-                        .foregroundStyle(isEnabled ? .primary : .tertiary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
+
+                    HStack(spacing: 8) {
+                        Text(isEnabled ? "On" : "Off")
+                            .frame(width: 24, alignment: .leading)
+                            .accessibilityHidden(true)
+
+                        Toggle("", isOn: $isEnabled)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .accessibilityLabel(Text("\(title) enabled"))
+                            .accessibilityValue(Text(isEnabled ? "On" : "Off"))
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Connection")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    HStack(alignment: .top, spacing: 7) {
+                        Image(systemName: presentation.systemImage)
+                            .foregroundStyle(presentation.tone.color)
+                            .frame(width: 16)
+
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(presentation.label)
+                            if let detail = presentation.detail {
+                                Text(detail)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text(connectionAccessibilityLabel))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: 8) {
+                Text(pathText)
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(isEnabled ? .secondary : .tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 Button {
                     chooseDirectory()
@@ -165,23 +252,24 @@ private struct SourceDirectoryRow: View {
                 } label: {
                     Label("Use Default", systemImage: "arrow.uturn.backward")
                 }
-                .disabled(source.selectionMode == .automatic)
+                .disabled(!isManualPath)
             }
         }
-        .padding(16)
-        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(.separator.opacity(0.55), lineWidth: 1)
-        )
+        .id(sourceTool)
     }
+}
 
-    private var iconName: String {
-        switch source.platform {
-        case .claude:
-            return "text.bubble"
-        case .codex:
-            return "terminal"
+private extension SourceStatusTone {
+    var color: Color {
+        switch self {
+        case .positive:
+            .green
+        case .caution:
+            .orange
+        case .negative:
+            .red
+        case .neutral:
+            .secondary
         }
     }
 }

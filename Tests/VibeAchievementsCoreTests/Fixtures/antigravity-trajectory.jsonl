@@ -1,0 +1,8 @@
+{"type":"user_input","id":"u1","timestamp":"2026-07-11T00:00:00Z","workspace":"/tmp/vibe-app","text":"Build the small feature"}
+{"type":"planner_response","id":"a1","timestamp":"2026-07-11T00:00:01Z","content":"I will inspect the existing shape first."}
+{"type":"system","timestamp":"2026-07-11T00:00:02Z","text":"internal state"}
+{"type":"tool_call","timestamp":"2026-07-11T00:00:03Z","name":"read_file","arguments":{"path":"/tmp/vibe-app"}}
+{"type":"tool_result","timestamp":"2026-07-11T00:00:04Z","output":"file contents"}
+{"type":"unknown_future_variant","timestamp":"2026-07-11T00:00:05Z","payload":{"opaque":true}}
+{"kind":"planner","timestamp":"2026-07-11T00:00:06Z","response":{"text":"The feature is ready."}}
+{"type":"ephemeral","timestamp":"2026-07-11T00:00:07Z","text":"transient status"}

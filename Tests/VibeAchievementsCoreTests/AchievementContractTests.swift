@@ -19,4 +19,22 @@ final class AchievementContractTests: XCTestCase {
         XCTAssertTrue(contracts.contains { $0.id == "achievement_unlocked_unlocking_achievement" })
         XCTAssertTrue(contracts.contains { $0.id == "rm_rf" })
     }
+
+    func testLoadsPackagedContractsFromMainBundleResources() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("packaged-contracts-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundle = root.appendingPathComponent(
+            "vibe-achievements_VibeAchievementsCore.bundle",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let packagedURL = bundle.appendingPathComponent("achievement-trigger-contracts-v1.jsonl")
+        let sample = #"{"id":"packaged","number":1,"name":"Packaged","category":"test","definition":"Loaded from the app bundle.","detection_class":"metadata","signals":[],"window":"all_time","exclusions":[],"cooldown":"once","confidence":"high","status":"keep","difficulty":"starter","expected_frequency":"once","active":true}"#
+        try (sample + "\n").write(to: packagedURL, atomically: true, encoding: .utf8)
+
+        let contracts = try AchievementContractLoader.loadBundledV1(mainResourceURL: root)
+
+        XCTAssertEqual(contracts.map(\.id), ["packaged"])
+    }
 }

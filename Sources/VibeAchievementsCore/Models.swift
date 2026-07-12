@@ -1,8 +1,11 @@
 import Foundation
 
-public enum SourceTool: String, Codable, Sendable {
+public enum SourceTool: String, Codable, CaseIterable, Hashable, Sendable {
     case claudeCode = "claude_code"
     case codex = "codex"
+    case cursor = "cursor"
+    case openCode = "open_code"
+    case antigravity = "antigravity"
 }
 
 public enum MessageRole: String, Codable, Sendable {
