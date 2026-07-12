@@ -19,6 +19,13 @@ struct SettingsView: View {
                         Text(lastError)
                             .foregroundStyle(.red)
                     }
+
+                    Button {
+                        state.scanNow()
+                    } label: {
+                        Label("Scan Now", systemImage: "arrow.clockwise")
+                    }
+                    .padding(.top, 4)
                 }
 
                 Divider()
@@ -128,7 +135,7 @@ struct SettingsView: View {
                     }
                 )
             }
-            .frame(maxWidth: 580, alignment: .leading)
+            .frame(maxWidth: 680, alignment: .leading)
             .padding(20)
         }
         .onAppear { state.scanNow() }
@@ -237,13 +244,13 @@ private struct SourceDirectoryRow: View {
                 Button {
                     chooseDirectory()
                 } label: {
-                    Label("Choose...", systemImage: "folder")
+                    Label("Choose Folder", systemImage: "folder")
                 }
 
                 Button {
                     resetDirectory()
                 } label: {
-                    Label("Reset", systemImage: "arrow.uturn.backward")
+                    Label("Use Default", systemImage: "arrow.uturn.backward")
                 }
                 .disabled(!isManualPath)
             }

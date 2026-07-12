@@ -28,7 +28,8 @@ on your machine.
   only).
 - Fires one native macOS notification per newly unlocked achievement, exactly
   once, tracked in the database so it never re-notifies across scans or restarts.
-- Shows an achievement shelf and a source/status window from the menu bar.
+- Shows an achievement shelf and a Settings window with source folder selectors
+  and scan status from the menu bar.
 
 ## How it works
 
@@ -72,14 +73,17 @@ suite; this Mac does not currently have local OpenCode history to validate.
 
 ### Source settings
 
-Open **Settings** from the menu bar item to control watched sources:
+Open **Settings** from the menu bar item to control watched sources. The
+**Conversation Sources** panel shows one row per supported platform:
 
 - Toggle any supported source scanning on or off.
-- Use **Choose...** to point Claude Code at a projects folder, such as
+- Use **Choose Folder** to point Claude Code at a projects folder, such as
   `~/.claude/projects`.
-- Use **Choose...** to point Codex at its home folder, such as `~/.codex`; the
-  app derives `sessions` and `archived_sessions` below that folder.
-- Use **Reset** to return a source to auto-detection.
+- Use **Choose Folder** to point Codex at its home folder, such as `~/.codex`;
+  the app derives `sessions` and `archived_sessions` below that folder.
+- Use **Use Default** to clear a manual folder and return that source to
+  auto-detection.
+- Use **Scan Now** to rescan immediately after changing folders.
 
 Cursor settings point at its application support folder; OpenCode settings point
 at its data folder; Antigravity settings point at the `.gemini` home folder.
@@ -113,7 +117,7 @@ Runs as a menu-bar **accessory** app (no Dock icon). Use the **Vibe** menu bar
 item to open the achievement shelf, open Settings, or quit. Scans run
 automatically on launch, when a window opens, and on a periodic timer. Settings
 lets you enable/disable supported sources, choose manual source
-folders, and reset back to auto-detection.
+folders, reset back to auto-detection, and scan immediately.
 
 > Note: notifications require a real app bundle identifier, so they are
 > disabled when launched via `swift run` (the menu bar UI and indexing still

@@ -3,6 +3,8 @@ import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    nonisolated static let settingsWindowContentSize = NSSize(width: 720, height: 640)
+
     private var statusItem: NSStatusItem?
     private var shelfWindow: NSWindow?
     private var settingsWindow: NSWindow?
@@ -55,7 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if settingsWindow == nil {
             settingsWindow = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(state: appState)))
             settingsWindow?.title = "Settings"
-            settingsWindow?.setContentSize(NSSize(width: 620, height: 640))
+            settingsWindow?.setContentSize(Self.settingsWindowContentSize)
             settingsWindow?.isReleasedWhenClosed = false
         }
         NSApp.activate(ignoringOtherApps: true)
