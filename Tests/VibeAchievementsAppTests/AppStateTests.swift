@@ -76,6 +76,29 @@ final class AppStateTests: XCTestCase {
         ])
     }
 
+    @MainActor
+    func testDoesNotPublishStatusesFromScanSupersededBySourceSettings() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        let state = AppState(
+            storePath: NSTemporaryDirectory() + UUID().uuidString + ".sqlite",
+            sourceSettingsDefaults: defaults
+        )
+        let staleStatus = ConversationSourceStatus(
+            sourceTool: .claudeCode,
+            displayName: "Claude Code",
+            state: .connected,
+            recordCount: 3,
+            warningCount: 0
+        )
+
+        state.scanNow()
+        let supersededGeneration = state.scanGeneration
+        state.updateSourceSettings { $0.cursorEnabled.toggle() }
+        state.applySourceStatuses([staleStatus], fromScanGeneration: supersededGeneration)
+
+        XCTAssertTrue(state.sourceStatuses.isEmpty)
+    }
+
     func testNotificationStateIsMarkedOnlyWhenNotificationsCanSchedule() {
         XCTAssertFalse(AppState.shouldMarkNotificationsDelivered(notify: false, notificationsAvailable: true, pendingCount: 1))
         XCTAssertFalse(AppState.shouldMarkNotificationsDelivered(notify: true, notificationsAvailable: false, pendingCount: 1))
