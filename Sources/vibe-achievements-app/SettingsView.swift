@@ -189,6 +189,7 @@ private struct SourceDirectoryRow: View {
                     HStack(spacing: 8) {
                         Text(isEnabled ? "On" : "Off")
                             .frame(width: 24, alignment: .leading)
+                            .accessibilityHidden(true)
 
                         Toggle("", isOn: $isEnabled)
                             .labelsHidden()
@@ -211,7 +212,6 @@ private struct SourceDirectoryRow: View {
 
                         VStack(alignment: .leading, spacing: 1) {
                             Text(presentation.label)
-                                .foregroundStyle(presentation.tone.color)
                             if let detail = presentation.detail {
                                 Text(detail)
                                     .font(.caption)
