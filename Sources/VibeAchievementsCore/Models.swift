@@ -87,6 +87,18 @@ public struct ParsedTranscript: Equatable, Sendable {
     }
 }
 
+public struct TokenUsageSummary: Equatable, Sendable {
+    public var totalTokens: Int
+    public var includesEstimates: Bool
+
+    public init(totalTokens: Int, includesEstimates: Bool) {
+        self.totalTokens = totalTokens
+        self.includesEstimates = includesEstimates
+    }
+
+    public static let zero = TokenUsageSummary(totalTokens: 0, includesEstimates: false)
+}
+
 public func projectKey(for path: String?) -> String {
     guard let path, !path.isEmpty else { return "unknown-project" }
     return path.replacingOccurrences(of: " ", with: "-").lowercased()

@@ -10,7 +10,7 @@ struct AchievementShelfView: View {
         let items = AchievementCatalog.items(contracts: state.achievementContracts, unlocks: state.recentUnlocks, filter: filter)
 
         VStack(alignment: .leading, spacing: 14) {
-            ShelfHeaderView(progress: progress)
+            ShelfHeaderView(progress: progress, tokenUsage: state.tokenUsage)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(state.sourceSummary)
@@ -72,6 +72,7 @@ struct AchievementShelfView: View {
 
 private struct ShelfHeaderView: View {
     let progress: AchievementProgress
+    let tokenUsage: TokenUsageSummary
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -82,12 +83,28 @@ private struct ShelfHeaderView: View {
 
             Spacer()
 
-            VStack(alignment: .trailing, spacing: 5) {
-                Text("\(progress.unlocked)/\(progress.total)")
-                    .font(.headline.monospacedDigit())
-                ProgressView(value: progress.fraction)
-                    .progressViewStyle(.linear)
-                    .frame(width: 142)
+            HStack(spacing: 16) {
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text("Total tokens")
+                        .font(.caption)
+                    Text(TokenUsagePresentation.valueText(for: tokenUsage))
+                        .font(.headline.monospacedDigit())
+                }
+                .help(TokenUsagePresentation.detailText(for: tokenUsage))
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Total tokens")
+                .accessibilityValue(TokenUsagePresentation.detailText(for: tokenUsage))
+
+                Divider()
+                    .frame(height: 34)
+
+                VStack(alignment: .trailing, spacing: 5) {
+                    Text("\(progress.unlocked)/\(progress.total)")
+                        .font(.headline.monospacedDigit())
+                    ProgressView(value: progress.fraction)
+                        .progressViewStyle(.linear)
+                        .frame(width: 142)
+                }
             }
             .foregroundStyle(.secondary)
         }

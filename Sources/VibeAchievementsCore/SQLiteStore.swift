@@ -69,6 +69,37 @@ public final class SQLiteStore {
         try scalarInt("SELECT COUNT(*) FROM achievement_unlocks;")
     }
 
+    public func totalTokenUsage() throws -> TokenUsageSummary {
+        let sql = """
+        SELECT
+            COALESCE(SUM(
+                CASE
+                    WHEN raw_token_count > 0 THEN raw_token_count
+                    ELSE estimated_tokens
+                END
+            ), 0),
+            COALESCE(MAX(
+                CASE
+                    WHEN raw_token_count <= 0 AND estimated_tokens > 0 THEN 1
+                    ELSE 0
+                END
+            ), 0)
+        FROM threads;
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw StoreError.prepareFailed
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw StoreError.stepFailed
+        }
+        return TokenUsageSummary(
+            totalTokens: Int(sqlite3_column_int64(statement, 0)),
+            includesEstimates: sqlite3_column_int(statement, 1) != 0
+        )
+    }
+
     public func allUnlocks() throws -> [AchievementUnlock] {
         let sql = """
         SELECT achievement_id, name, project_key, thread_id, unlocked_at, trigger_summary

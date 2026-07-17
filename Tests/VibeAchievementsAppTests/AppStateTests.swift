@@ -9,6 +9,22 @@ final class AppStateTests: XCTestCase {
         defer { try? FileManager.default.removeItem(atPath: path) }
         let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
         let store = try SQLiteStore(path: path)
+        try store.upsert(thread: NormalizedThread(
+            id: "codex:thread",
+            sourceTool: .codex,
+            sourceThreadID: "thread",
+            sourcePath: "/tmp/thread.jsonl",
+            projectPath: "/tmp/project",
+            projectKey: "/tmp/project",
+            title: nil,
+            createdAt: nil,
+            updatedAt: nil,
+            messageCount: 1,
+            userTurnCount: 1,
+            assistantTurnCount: 0,
+            estimatedTokens: 25,
+            rawTokenCount: 200
+        ))
         try store.insert(unlock: AchievementUnlock(
             achievementID: "actually_wait",
             name: "Actually, Wait",
@@ -24,6 +40,7 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(state.recentUnlocks.map(\.achievementID), ["actually_wait"])
         XCTAssertEqual(state.sourceSummary, "Refreshing sources")
         XCTAssertEqual(state.lastScanSummary, "Loaded 1 cached achievement")
+        XCTAssertEqual(state.tokenUsage, TokenUsageSummary(totalTokens: 200, includesEstimates: false))
     }
 
     func testFingerprintIncludesDetectorVersion() throws {

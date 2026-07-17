@@ -2,6 +2,45 @@ import XCTest
 @testable import VibeAchievementsCore
 
 final class SQLiteStoreTests: XCTestCase {
+    func testTotalTokenUsagePrefersRecordedCountsAndFallsBackToEstimates() throws {
+        let path = NSTemporaryDirectory() + UUID().uuidString + ".sqlite"
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let store = try SQLiteStore(path: path)
+
+        try store.upsert(thread: tokenThread(
+            id: "codex:exact",
+            estimatedTokens: 40,
+            rawTokenCount: 150
+        ))
+        try store.upsert(thread: tokenThread(
+            id: "cursor:estimated",
+            estimatedTokens: 75,
+            rawTokenCount: nil
+        ))
+
+        XCTAssertEqual(
+            try store.totalTokenUsage(),
+            TokenUsageSummary(totalTokens: 225, includesEstimates: true)
+        )
+    }
+
+    func testTotalTokenUsageIsExactWhenEveryThreadHasRecordedCounts() throws {
+        let path = NSTemporaryDirectory() + UUID().uuidString + ".sqlite"
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let store = try SQLiteStore(path: path)
+
+        try store.upsert(thread: tokenThread(
+            id: "claude_code:exact",
+            estimatedTokens: 30,
+            rawTokenCount: 120
+        ))
+
+        XCTAssertEqual(
+            try store.totalTokenUsage(),
+            TokenUsageSummary(totalTokens: 120, includesEstimates: false)
+        )
+    }
+
     func testStoresThreadAndUnlock() throws {
         let path = NSTemporaryDirectory() + UUID().uuidString + ".sqlite"
         let store = try SQLiteStore(path: path)
@@ -236,5 +275,31 @@ final class SQLiteStoreTests: XCTestCase {
 
         let reopened = try SQLiteStore(path: path)
         XCTAssertNil(try reopened.sourceRecord(identity: identity))
+    }
+
+    private func tokenThread(
+        id: String,
+        estimatedTokens: Int,
+        rawTokenCount: Int?
+    ) -> NormalizedThread {
+        let sourceTool: SourceTool = id.hasPrefix("codex:")
+            ? .codex
+            : (id.hasPrefix("cursor:") ? .cursor : .claudeCode)
+        return NormalizedThread(
+            id: id,
+            sourceTool: sourceTool,
+            sourceThreadID: id,
+            sourcePath: "/tmp/\(id).jsonl",
+            projectPath: "/tmp/project",
+            projectKey: "/tmp/project",
+            title: nil,
+            createdAt: nil,
+            updatedAt: nil,
+            messageCount: 1,
+            userTurnCount: 1,
+            assistantTurnCount: 0,
+            estimatedTokens: estimatedTokens,
+            rawTokenCount: rawTokenCount
+        )
     }
 }

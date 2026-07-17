@@ -10,6 +10,7 @@ final class AppState: ObservableObject {
     @Published var achievementContracts: [AchievementContract] = []
     @Published var lastScanSummary: String = "Loading indexed history"
     @Published var lastError: String?
+    @Published var tokenUsage: TokenUsageSummary = .zero
     @Published var sourceSettings: AppSourceSettings
 
     private let storePath: String
@@ -94,6 +95,9 @@ final class AppState: ObservableObject {
         lastScanSummary = result.lastScanSummary
         lastError = result.error
         achievementContracts = result.achievementContracts
+        if let tokenUsage = result.tokenUsage {
+            self.tokenUsage = tokenUsage
+        }
         if let recent = result.recentUnlocks {
             recentUnlocks = recent
         }
@@ -112,7 +116,9 @@ final class AppState: ObservableObject {
         do {
             achievementContracts = try AchievementContractLoader.loadBundledV1()
             guard FileManager.default.fileExists(atPath: storePath) else { return }
-            recentUnlocks = try SQLiteStore(path: storePath).allUnlocks()
+            let store = try SQLiteStore(path: storePath)
+            tokenUsage = try store.totalTokenUsage()
+            recentUnlocks = try store.allUnlocks()
             guard !recentUnlocks.isEmpty else { return }
             lastScanSummary = "Loaded \(recentUnlocks.count) cached achievement\(recentUnlocks.count == 1 ? "" : "s")"
         } catch {
@@ -128,6 +134,7 @@ private struct ScanResult: Sendable {
     var sourceStatuses: [ConversationSourceStatus]
     var lastScanSummary: String
     var achievementContracts: [AchievementContract]
+    var tokenUsage: TokenUsageSummary?
     var recentUnlocks: [AchievementUnlock]?
     var error: String?
 }
@@ -188,6 +195,7 @@ extension AppState {
                     newUnlockCount: indexResult.unlocks.count
                 ),
                 achievementContracts: contracts,
+                tokenUsage: try store.totalTokenUsage(),
                 recentUnlocks: recent,
                 error: warningSummary(for: indexResult.warnings)
             )
@@ -198,6 +206,7 @@ extension AppState {
                 sourceStatuses: failureStatuses,
                 lastScanSummary: "Scan failed",
                 achievementContracts: [],
+                tokenUsage: nil,
                 recentUnlocks: nil,
                 error: message
             )
